@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                json-spec-elm
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Elm code generate for `json-spec`.
 description:         
                      Produce elm types, encoders, and decoders from a
