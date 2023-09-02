@@ -1,0 +1,6 @@
+packages:
+  "."
+package json-spec-elm
+  ghc-options:
+    -Werror
+
