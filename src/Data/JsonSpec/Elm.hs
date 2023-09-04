@@ -219,7 +219,7 @@ instance (HasType spec) => HasType (JsonLet '[] spec) where
   decoderOf = decoderOf @spec
   encoderOf = encoderOf @spec
 instance {- HasType (JsonLet ( def : more ) spec) -}
-    ( ElmDef def
+    ( HasDef def
     , HasType (JsonLet more spec)
     )
   =>
@@ -332,14 +332,14 @@ instance {- Decoders ('(name, spec) : more) -}
       pure $ ( sym @name , dec) : more
 
 
-class ElmDef (def :: (Symbol, Specification)) where
+class HasDef (def :: (Symbol, Specification)) where
   defs :: Definitions ()
 instance {-# OVERLAPS #-}
     ( KnownSymbol name
     , SumDef (JsonEither left right)
     )
   =>
-    ElmDef '(name, JsonEither left right)
+    HasDef '(name, JsonEither left right)
   where
     defs = do
         branches <- sumDef @(JsonEither left right)
@@ -397,7 +397,7 @@ instance {-# OVERLAPS #-}
 
         name :: Text
         name = sym @name
-instance (HasType spec, KnownSymbol name) => ElmDef '(name, spec) where
+instance (HasType spec, KnownSymbol name) => HasDef '(name, spec) where
   defs = do
     type_ <- typeOf @spec
     dec <- decoderOf @spec
