@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -15,10 +16,11 @@ module Data.JsonSpec.Elm (
   elmDefs,
   Definitions,
   HasType(..),
+  Named,
 ) where
 
 
-import Bound (Scope(Scope), Var(B, F), toScope)
+import Bound (Scope(Scope), Var(B), abstract1, closed, toScope)
 import Control.Monad.Writer (MonadWriter(tell), Writer, execWriter)
 import Data.JsonSpec (Specification(JsonArray, JsonBool, JsonDateTime,
   JsonEither, JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject,
@@ -31,12 +33,12 @@ import Data.Void (Void, absurd)
 import GHC.TypeLits (ErrorMessage((:$$:), (:<>:)), KnownSymbol, Symbol,
   TypeError, symbolVal)
 import Language.Elm.Definition (Definition)
-import Language.Elm.Expression ((|>), Expression, bind, if_)
+import Language.Elm.Expression ((|>), Expression, if_)
 import Language.Elm.Name (Constructor, Qualified)
 import Language.Elm.Type (Type)
-import Prelude (Applicative(pure), Foldable(foldl), Functor(fmap),
+import Prelude (Applicative(pure), Foldable(foldl, foldr), Functor(fmap),
   Maybe(Just, Nothing), Monad((>>)), Semigroup((<>)), Show(show), ($),
-  (++), (.), (<$>), Int, error, reverse, zip)
+  (++), (.), (<$>), Int, error, fst, snd, zip)
 import qualified Data.Char as Char
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -59,9 +61,11 @@ elmDefs _ =
 class Record (spec :: [(Symbol, Specification)]) where
   recordDefs :: forall v. Definitions [(Name.Field, Type v)]
   recordEncoders :: Definitions [(Text, Name.Field, Expression Void)]
+  recordDecoders :: Definitions [(Text, Expression Void)]
 instance Record '[] where
   recordDefs = pure []
   recordEncoders = pure []
+  recordDecoders = pure []
 instance
     ( HasType spec
     , KnownSymbol name
@@ -73,11 +77,15 @@ instance
     recordDefs = do
       type_ <- typeOf @spec
       moreFields <- recordDefs @more
-      pure $ (fieldName @name, type_) : moreFields
+      pure $ (fieldName (sym @name), type_) : moreFields
     recordEncoders = do
       encoder <- encoderOf @spec
       moreFields <- recordEncoders @more
-      pure $ (sym @name, fieldName @name, encoder) : moreFields
+      pure $ (sym @name, fieldName (sym @name), encoder) : moreFields
+    recordDecoders = do
+      dec <- decoderOf @spec
+      more <- recordDecoders @more
+      pure $ ( sym @name , dec) : more
 
 
 class HasType (spec :: Specification) where
@@ -96,65 +104,47 @@ instance HasType JsonInt where
   typeOf = pure "Basics.Int"
   decoderOf = pure "Json.Decode.int"
   encoderOf = pure "Json.Encode.int"
-instance {- HasType (JsonObject fields) -}
-    ( Record fields
-    , BaseFields (Reverse fields)
-    , Lambda (LambdaDepth (Reverse fields))
-    , Decoders fields
-    )
-  =>
-    HasType (JsonObject fields)
-  where
-    typeOf = Type.Record <$> recordDefs @fields
-    decoderOf = do
-        decoders <- fieldDecoders @fields
-        pure $
-          foldl
-            (\expr (_, decoder) ->
-              expr |> ("Json.Decode.andThen" `Expr.App`
-                Expr.Lam (toScope (
-                  "Json.Decode.map"
-                    `Expr.App` Expr.Var (B ())
-                    `Expr.App` bind Expr.Global absurd decoder
-                ))
-              )
+instance (Record fields) => HasType (JsonObject fields) where
+  typeOf = Type.Record <$> recordDefs @fields
+  decoderOf = do
+    decoders <- recordDecoders @fields
+    pure $
+      foldl
+        (\expr decoder ->
+          expr |>
+            (
+              "Json.Decode.andThen" `a`
+                lam (\var -> "Json.Decode.map" `a` var `a` (absurd <$> decoder))
             )
-            ("Json.Decode.succeed" `Expr.App` lambda)
-            decoders
-      where
-        lambda =
-          lam . Expr.Record . reverse $
-            [ (name, var)
-            | (name, var) <- baseFields @(Reverse fields)
-            ]
-    encoderOf = do
-        fields <- recordEncoders @fields
-        pure $
-          Expr.Lam . toScope $
-            "Json.Encode.object"
-            `Expr.App`
+        )
+        ("Json.Decode.succeed" `a` recordConstructor (fst <$> decoders))
+        (snd <$> decoders)
+  encoderOf = do
+      fields <- recordEncoders @fields
+      pure $
+        Expr.Lam . toScope $
+          "Json.Encode.object" `a`
             Expr.List
               [ Expr.apps "Basics.," [
                 Expr.String jsonField,
-                Expr.bind Expr.Global absurd encoder `Expr.App`
-                  (Expr.Proj elmField `Expr.App` Expr.Var var)
+                Expr.bind Expr.Global absurd encoder `a`
+                  (Expr.Proj elmField `a` Expr.Var var)
                 ]
               | (jsonField, elmField, encoder) <- fields
               ]
-      where
-        var :: Bound.Var () a
-        var = B ()
-
+    where
+      var :: Bound.Var () a
+      var = B ()
 instance (HasType spec) => HasType (JsonArray spec) where
   typeOf = do
     elemType <- typeOf @spec
-    pure $ Type.App "Basics.List" elemType
+    pure $ "Basics.List" `ta` elemType
   decoderOf = do
     dec <- decoderOf @spec
-    pure $ Expr.App "Json.Decode.list" dec
+    pure $ "Json.Decode.list" `a` dec
   encoderOf = do
     encoder <- encoderOf @spec
-    pure $ "Json.Encode.list" `Expr.App` encoder
+    pure $ "Json.Encode.list" `a` encoder
 instance HasType JsonBool where
   typeOf = pure "Basics.Bool"
   decoderOf = pure "Json.Decode.bool"
@@ -163,10 +153,10 @@ instance HasType JsonBool where
 instance (HasType spec) => HasType (JsonNullable spec) where
   typeOf = do
     type_ <- typeOf @spec
-    pure $ Type.App "Maybe.Maybe" type_
+    pure $ "Maybe.Maybe" `ta` type_
   decoderOf = do
     dec <- decoderOf @spec
-    pure $ Expr.App "Json.Decode.nullable" dec
+    pure $ a "Json.Decode.nullable" dec
   encoderOf = do
     encoder <- encoderOf @spec
     pure $
@@ -195,13 +185,13 @@ instance (KnownSymbol const) => HasType (JsonTag const) where
                     , Expr.String (sym @const)
                     ]
                 )
-                (Expr.App "Json.Decode.succeed" "Basics.()")
-                (Expr.App "Json.Decode.fail" (Expr.String "Tag mismatch"))
+                (a "Json.Decode.succeed" "Basics.()")
+                (a "Json.Decode.fail" (Expr.String "Tag mismatch"))
           ]
   encoderOf =
     pure $
-      "Basics.always" `Expr.App`
-        ("Json.Encode.string" `Expr.App` Expr.String (sym @const))
+      "Basics.always" `a`
+        ("Json.Encode.string" `a` Expr.String (sym @const))
 instance HasType JsonDateTime where
   typeOf = pure "Time.Posix"
   decoderOf = pure "Iso8601.decoder"
@@ -221,7 +211,7 @@ instance (HasType spec) => HasType (JsonLet '[] spec) where
   decoderOf = decoderOf @spec
   encoderOf = encoderOf @spec
 instance {- HasType (JsonLet ( def : more ) spec) -}
-    ( ElmDef def
+    ( HasDef def
     , HasType (JsonLet more spec)
     )
   =>
@@ -282,32 +272,6 @@ type family LambdaDepth (record :: [k]) where
     Bound.Var () (LambdaDepth more)
 
 
-class Lambda depth where
-  lam :: Expression depth -> Expression Void
-instance {-# OVERLAPS #-} Lambda (Bound.Var () Void) where
-  lam e = Expr.Lam (toScope e)
-instance (Lambda deeper) => Lambda (Bound.Var () deeper) where
-  lam e = lam (Expr.Lam (toScope e))
-
-
-class BaseFields (record :: [(Symbol, Specification)]) where
-  baseFields :: [(Name.Field, Expression (LambdaDepth record))]
-instance BaseFields '[] where
-  baseFields = []
-instance {- BaseFields ('(name, spec) : more) -}
-    (BaseFields more, KnownSymbol name)
-  =>
-    BaseFields ('(name, spec) : more)
-  where
-    baseFields =
-        (fieldName @name, Expr.Var (B ())) :
-        [ (name, b var)
-        | (name, var) <- baseFields @more
-        ]
-      where
-        b = bind Expr.Global (Expr.Var . F)
-
-
 type family Reverse (l :: [k]) where
   Reverse '[] = '[]
   Reverse (a : more) = Concat (Reverse more) '[a]
@@ -319,39 +283,24 @@ type family Concat (a :: [k]) (b :: [k]) where
     a : Concat more b
 
 
-class Decoders (spec :: [(Symbol, Specification)]) where
-  fieldDecoders :: Definitions [(Text, Expression Void)]
-instance Decoders '[] where
-  fieldDecoders = pure []
-instance {- Decoders ('(name, spec) : more) -}
-    (HasType spec, Decoders more, KnownSymbol name)
-  =>
-    Decoders ('(name, spec) : more)
-  where
-    fieldDecoders = do
-      dec <- decoderOf @spec
-      more <- fieldDecoders @more
-      pure $ ( sym @name , dec) : more
-
-
-class ElmDef (def :: (Symbol, Specification)) where
+class HasDef (def :: (Symbol, Specification)) where
   defs :: Definitions ()
-instance {-# OVERLAPS #-}
+instance {-# OVERLAPS #-} {- HasDef '(name, JsonEither left right) -}
     ( KnownSymbol name
     , SumDef (JsonEither left right)
     )
   =>
-    ElmDef '(name, JsonEither left right)
+    HasDef '(name, JsonEither left right)
   where
     defs = do
         branches <- sumDef @(JsonEither left right)
         let
           constructors :: [(Constructor, [Scope Int Type Void])]
           constructors =
-            [ ( Name.Constructor (constructorName n)
+            [ ( Name.Constructor (constructorName conName n)
               , [Scope type_]
               )
-            | (n, type_) <- zip [(1 :: Int) ..] branches
+            | (n, (conName, type_)) <- zip [1..] branches
             ]
         decoders <- sumDecoders @(JsonEither left right)
         encoders <- sumEncoders @(JsonEither left right)
@@ -360,20 +309,15 @@ instance {-# OVERLAPS #-}
           , Def.Constant
               (decoderName @name)
               0
-              ( Scope
-                  ( "Json.Decode.Decoder"
-                    `Type.App`
-                    Type.Global (localName name)
-                  )
-              )
+              (Scope ("Json.Decode.Decoder" `ta` Type.Global (localName name)))
               (
                 "Json.Decode.oneOf"
-                `Expr.App`
+                `a`
                 Expr.List
                   [ "Json.Decode.map"
-                    `Expr.App` Expr.Global (localName (constructorName n))
-                    `Expr.App` dec
-                  | (n, dec) <-  zip [(1 :: Int) ..] decoders
+                    `a` Expr.Global (localName (constructorName conName n))
+                    `a` dec
+                  | (n, (conName, dec)) <-  zip [1..] decoders
                   ]
               )
           , Def.Constant
@@ -389,22 +333,24 @@ instance {-# OVERLAPS #-}
                 Expr.Lam . toScope $
                   Expr.Case
                     (Expr.Var (B ()))
-                    [ ( Pat.Con (localName (constructorName n)) [Pat.Var 0]
+                    [ ( Pat.Con (localName (constructorName conName n)) [Pat.Var 0]
                       , toScope $
-                        fmap absurd encoder `Expr.App`
+                        fmap absurd encoder `a`
                           Expr.Var (B (0 :: Int))
                       )
-                    | (n, encoder) <- zip [1..] encoders
+                    | (n, (conName, encoder)) <- zip [1..] encoders
                     ]
               )
           ]
       where
-        constructorName :: Int -> Text
-        constructorName n = name <> "_" <> showt n
+        constructorName :: Maybe Text -> Int -> Text
+        constructorName = \cases
+          Nothing n -> name <> "_" <> showt n
+          (Just consName) _ -> consName
 
         name :: Text
         name = sym @name
-instance (HasType spec, KnownSymbol name) => ElmDef '(name, spec) where
+instance (HasType spec, KnownSymbol name) => HasDef '(name, spec) where
   defs = do
     type_ <- typeOf @spec
     dec <- decoderOf @spec
@@ -418,9 +364,9 @@ instance (HasType spec, KnownSymbol name) => ElmDef '(name, spec) where
           (decoderName @name)
           0
           ( Scope
-              ( Type.App
-                  "Json.Decode.Decoder"
-                  (Type.Global $ localName (sym @name))
+              (
+                "Json.Decode.Decoder" `ta`
+                  Type.Global (localName (sym @name))
               )
           )
           dec
@@ -438,77 +384,52 @@ instance (HasType spec, KnownSymbol name) => ElmDef '(name, spec) where
 
 
 class SumDef (spec :: Specification) where
-  sumDef :: forall v. Definitions [Type v]
-  sumDecoders :: Definitions [Expression Void]
-  sumEncoders :: Definitions [Expression Void]
-instance {-# OVERLAPS #-}
-    (SumDef (JsonEither a b), SumDef (JsonEither c d))
-  =>
-    SumDef (JsonEither (JsonEither a b) (JsonEither c d))
-  where
-    sumDef = do
-      left <- sumDef @(JsonEither a b)
-      right <- sumDef @(JsonEither c d)
-      pure $ left ++ right
-    sumDecoders = do
-      left <- sumDecoders @(JsonEither a b)
-      right <- sumDecoders @(JsonEither c d)
-      pure (left ++ right)
-    sumEncoders = do
-      left <- sumEncoders @(JsonEither a b)
-      right <- sumEncoders @(JsonEither c d)
-      pure (left ++ right)
-instance {-# OVERLAPS #-}
-    (SumDef (JsonEither a b), HasType right)
-  =>
-    SumDef (JsonEither (JsonEither a b) right)
-  where
-    sumDef = do
-      left <- sumDef @(JsonEither a b)
-      right <- typeOf @right
-      pure $ left ++ [right]
-    sumDecoders = do
-      left <- sumDecoders @(JsonEither a b)
-      right <- decoderOf @right
-      pure $ left ++ [right]
-    sumEncoders = do
-      left <- sumEncoders @(JsonEither a b)
-      right <- encoderOf @right
-      pure $ left ++ [right]
-instance {-# OVERLAPS #-}
-    (SumDef (JsonEither c d), HasType left)
-  =>
-    SumDef (JsonEither left (JsonEither c d))
-  where
-    sumDef = do
-      left <- typeOf @left
-      right <- sumDef @(JsonEither c d)
-      pure $ left : right
-    sumDecoders = do
-      left <- decoderOf @left
-      right <- sumDecoders @(JsonEither c d)
-      pure $ left : right
-    sumEncoders = do
-      left <- encoderOf @left
-      right <- sumEncoders @(JsonEither c d)
-      pure $ left : right
+  sumDef :: forall v. Definitions [(Maybe Text, Type v)]
+  sumDecoders :: Definitions [(Maybe Text, Expression Void)]
+  sumEncoders :: Definitions [(Maybe Text, Expression Void)]
 instance
-    (HasType left, HasType right)
+    (SumDef left, SumDef right)
   =>
     SumDef (JsonEither left right)
   where
     sumDef = do
-      left <- typeOf @left
-      right <- typeOf @right
-      pure [left, right]
+      left <- sumDef @left
+      right <- sumDef @right
+      pure $ left ++ right
     sumDecoders = do
-      left <- decoderOf @left
-      right <- decoderOf @right
-      pure [left, right]
+      left <- sumDecoders @left
+      right <- sumDecoders @right
+      pure (left ++ right)
     sumEncoders = do
-      left <- encoderOf @left
-      right <- encoderOf @right
-      pure [left, right]
+      left <- sumEncoders @left
+      right <- sumEncoders @right
+      pure (left ++ right)
+instance
+    ( HasType def
+    , KnownSymbol name
+    )
+  =>
+    SumDef (JsonLet '[ '(name, def) ] (JsonRef name))
+  where
+    sumDef = do
+      typ <- typeOf @def
+      pure [(Just (sym @name), typ)]
+    sumDecoders = do
+      dec <- decoderOf @def
+      pure [(Just (sym @name), dec)]
+    sumEncoders = do
+      enc <- encoderOf @def
+      pure [(Just (sym @name), enc)]
+instance {-# overlaps #-} (HasType a) => SumDef a where
+  sumDef = do
+    typ <- typeOf @a
+    pure [(Nothing, typ)]
+  sumDecoders = do
+    dec <- decoderOf @a
+    pure [(Nothing, dec)]
+  sumEncoders = do
+    enc <- encoderOf @a
+    pure [(Nothing, enc)]
 
 
 localName :: Text -> Qualified
@@ -541,11 +462,55 @@ encoderName :: forall name. (KnownSymbol name) => Qualified
 encoderName = localName (lower (sym @name) <> "Encoder")
 
 
-fieldName :: forall name. (KnownSymbol name) => Name.Field
-fieldName =
+fieldName :: Text -> Name.Field
+fieldName specName =
   Name.Field $
-    case sym @name of
+    case specName of
       "type" -> "type_"
       other -> Text.replace "-" "_" other
+
+
+a :: Expression v -> Expression v -> Expression v
+a = Expr.App
+
+
+ta :: Type v -> Type v -> Type v
+ta = Type.App
+
+
+recordConstructor :: [Text] -> Expression v
+recordConstructor records =
+    case
+      closed $
+        foldr
+          (\field expr ->
+            Expr.Lam $ abstract1 field expr
+          )
+          unboundRecord
+          records
+    of
+      Nothing -> error "can't happen"
+      Just expr -> expr
+  where
+    unboundRecord :: Expression Text
+    unboundRecord =
+      Expr.Record
+        [ (fieldName field, Expr.Var field)
+        | field <- records
+        ]
+
+
+lam
+  :: (Expression (Var () a) -> Expression (Var () v))
+  -> Expression v
+lam f =
+  Expr.Lam . toScope $ f (Expr.Var (B ()))
+
+
+{-|
+  Helper for giving a specification a name. This is especially useful for
+  making sure sum type data constructors have meaningful names.
+-}
+type Named name def = JsonLet '[ '(name, def) ] (JsonRef name)
 
 
