@@ -73,11 +73,11 @@ instance
     recordDefs = do
       type_ <- typeOf @spec
       moreFields <- recordDefs @more
-      pure $ (fieldName @name, type_) : moreFields
+      pure $ (fieldName (sym @name), type_) : moreFields
     recordEncoders = do
       encoder <- encoderOf @spec
       moreFields <- recordEncoders @more
-      pure $ (sym @name, fieldName @name, encoder) : moreFields
+      pure $ (sym @name, fieldName (sym @name), encoder) : moreFields
 
 
 class HasType (spec :: Specification) where
@@ -298,7 +298,7 @@ instance {- BaseFields ('(name, spec) : more) -}
     BaseFields ('(name, spec) : more)
   where
     baseFields =
-        (fieldName @name, Expr.Var (B ())) :
+        (fieldName (sym @name), Expr.Var (B ())) :
         [ (name, b var)
         | (name, var) <- baseFields @more
         ]
@@ -534,10 +534,10 @@ encoderName :: forall name. (KnownSymbol name) => Qualified
 encoderName = localName (lower (sym @name) <> "Encoder")
 
 
-fieldName :: forall name. (KnownSymbol name) => Name.Field
-fieldName =
+fieldName :: Text -> Name.Field
+fieldName specName =
   Name.Field $
-    case sym @name of
+    case specName of
       "type" -> "type_"
       other -> Text.replace "-" "_" other
 
