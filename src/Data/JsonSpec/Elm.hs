@@ -18,7 +18,7 @@ module Data.JsonSpec.Elm (
 ) where
 
 
-import Bound (Scope(Scope), Var(B, F), toScope)
+import Bound (Scope(Scope), Var(B), abstract1, closed, toScope)
 import Control.Monad.Writer (MonadWriter(tell), Writer, execWriter)
 import Data.JsonSpec (Specification(JsonArray, JsonBool, JsonDateTime,
   JsonEither, JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject,
@@ -31,12 +31,12 @@ import Data.Void (Void, absurd)
 import GHC.TypeLits (ErrorMessage((:$$:), (:<>:)), KnownSymbol, Symbol,
   TypeError, symbolVal)
 import Language.Elm.Definition (Definition)
-import Language.Elm.Expression ((|>), Expression, bind, if_)
+import Language.Elm.Expression ((|>), Expression, if_)
 import Language.Elm.Name (Constructor, Qualified)
 import Language.Elm.Type (Type)
-import Prelude (Applicative(pure), Foldable(foldl), Functor(fmap),
+import Prelude (Applicative(pure), Foldable(foldl, foldr), Functor(fmap),
   Maybe(Just, Nothing), Monad((>>)), Semigroup((<>)), Show(show), ($),
-  (++), (.), (<$>), Int, error, reverse, zip)
+  (++), (.), (<$>), Int, error, fst, snd, zip)
 import qualified Data.Char as Char
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -102,41 +102,26 @@ instance HasType JsonInt where
   typeOf = pure "Basics.Int"
   decoderOf = pure "Json.Decode.int"
   encoderOf = pure "Json.Encode.int"
-instance {- HasType (JsonObject fields) -}
-    ( Record fields
-    , BaseFields (Reverse fields)
-    , Lambda (LambdaDepth (Reverse fields))
-    )
-  =>
-    HasType (JsonObject fields)
-  where
-    typeOf = Type.Record <$> recordDefs @fields
-    decoderOf = do
-        decoders <- recordDecoders @fields
-        pure $
-          foldl
-            (\expr (_, decoder) ->
-              expr |> ("Json.Decode.andThen" `a`
-                Expr.Lam (toScope (
-                  "Json.Decode.map"
-                    `a` Expr.Var (B ())
-                    `a` bind Expr.Global absurd decoder
-                ))
-              )
+instance (Record fields) => HasType (JsonObject fields) where
+  typeOf = Type.Record <$> recordDefs @fields
+  decoderOf = do
+    decoders <- recordDecoders @fields
+    pure $
+      foldl
+        (\expr decoder ->
+          expr |>
+            (
+              "Json.Decode.andThen" `a`
+                lam (\var -> "Json.Decode.map" `a` var `a` (absurd <$> decoder))
             )
-            ("Json.Decode.succeed" `a` lambda)
-            decoders
-      where
-        lambda =
-          lam . Expr.Record . reverse $
-            [ (name, var)
-            | (name, var) <- baseFields @(Reverse fields)
-            ]
-    encoderOf = do
-        fields <- recordEncoders @fields
-        pure $
-          Expr.Lam . toScope $
-            "Json.Encode.object" `a`
+        )
+        ("Json.Decode.succeed" `a` recordConstructor (fst <$> decoders))
+        (snd <$> decoders)
+  encoderOf = do
+      fields <- recordEncoders @fields
+      pure $
+        Expr.Lam . toScope $
+          "Json.Encode.object" `a`
             Expr.List
               [ Expr.apps "Basics.," [
                 Expr.String jsonField,
@@ -145,9 +130,9 @@ instance {- HasType (JsonObject fields) -}
                 ]
               | (jsonField, elmField, encoder) <- fields
               ]
-      where
-        var :: Bound.Var () a
-        var = B ()
+    where
+      var :: Bound.Var () a
+      var = B ()
 instance (HasType spec) => HasType (JsonArray spec) where
   typeOf = do
     elemType <- typeOf @spec
@@ -283,32 +268,6 @@ type family LambdaDepth (record :: [k]) where
   LambdaDepth '[] = Void
   LambdaDepth (a : more) =
     Bound.Var () (LambdaDepth more)
-
-
-class Lambda depth where
-  lam :: Expression depth -> Expression Void
-instance {-# OVERLAPS #-} Lambda (Bound.Var () Void) where
-  lam e = Expr.Lam (toScope e)
-instance (Lambda deeper) => Lambda (Bound.Var () deeper) where
-  lam e = lam (Expr.Lam (toScope e))
-
-
-class BaseFields (record :: [(Symbol, Specification)]) where
-  baseFields :: [(Name.Field, Expression (LambdaDepth record))]
-instance BaseFields '[] where
-  baseFields = []
-instance {- BaseFields ('(name, spec) : more) -}
-    (BaseFields more, KnownSymbol name)
-  =>
-    BaseFields ('(name, spec) : more)
-  where
-    baseFields =
-        (fieldName (sym @name), Expr.Var (B ())) :
-        [ (name, b var)
-        | (name, var) <- baseFields @more
-        ]
-      where
-        b = bind Expr.Global (Expr.Var . F)
 
 
 type family Reverse (l :: [k]) where
@@ -538,5 +497,34 @@ a = Expr.App
 
 ta :: Type v -> Type v -> Type v
 ta = Type.App
+
+
+recordConstructor :: [Text] -> Expression v
+recordConstructor records =
+    case
+      closed $
+        foldr
+          (\field expr ->
+            Expr.Lam $ abstract1 field expr
+          )
+          unboundRecord
+          records
+    of
+      Nothing -> error "can't happen"
+      Just expr -> expr
+  where
+    unboundRecord :: Expression Text
+    unboundRecord =
+      Expr.Record
+        [ (fieldName field, Expr.Var field)
+        | field <- records
+        ]
+
+
+lam
+  :: (Expression (Var () a) -> Expression (Var () v))
+  -> Expression v
+lam f =
+  Expr.Lam . toScope $ f (Expr.Var (B ()))
 
 
