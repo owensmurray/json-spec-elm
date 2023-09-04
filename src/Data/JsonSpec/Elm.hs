@@ -383,74 +383,33 @@ class SumDef (spec :: Specification) where
   sumDef :: forall v. Definitions [Type v]
   sumDecoders :: Definitions [Expression Void]
   sumEncoders :: Definitions [Expression Void]
-instance {-# OVERLAPS #-}
-    (SumDef (JsonEither a b), SumDef (JsonEither c d))
-  =>
-    SumDef (JsonEither (JsonEither a b) (JsonEither c d))
-  where
-    sumDef = do
-      left <- sumDef @(JsonEither a b)
-      right <- sumDef @(JsonEither c d)
-      pure $ left ++ right
-    sumDecoders = do
-      left <- sumDecoders @(JsonEither a b)
-      right <- sumDecoders @(JsonEither c d)
-      pure (left ++ right)
-    sumEncoders = do
-      left <- sumEncoders @(JsonEither a b)
-      right <- sumEncoders @(JsonEither c d)
-      pure (left ++ right)
-instance {-# OVERLAPS #-}
-    (SumDef (JsonEither a b), HasType right)
-  =>
-    SumDef (JsonEither (JsonEither a b) right)
-  where
-    sumDef = do
-      left <- sumDef @(JsonEither a b)
-      right <- typeOf @right
-      pure $ left ++ [right]
-    sumDecoders = do
-      left <- sumDecoders @(JsonEither a b)
-      right <- decoderOf @right
-      pure $ left ++ [right]
-    sumEncoders = do
-      left <- sumEncoders @(JsonEither a b)
-      right <- encoderOf @right
-      pure $ left ++ [right]
-instance {-# OVERLAPS #-}
-    (SumDef (JsonEither c d), HasType left)
-  =>
-    SumDef (JsonEither left (JsonEither c d))
-  where
-    sumDef = do
-      left <- typeOf @left
-      right <- sumDef @(JsonEither c d)
-      pure $ left : right
-    sumDecoders = do
-      left <- decoderOf @left
-      right <- sumDecoders @(JsonEither c d)
-      pure $ left : right
-    sumEncoders = do
-      left <- encoderOf @left
-      right <- sumEncoders @(JsonEither c d)
-      pure $ left : right
 instance
-    (HasType left, HasType right)
+    (SumDef left, SumDef right)
   =>
     SumDef (JsonEither left right)
   where
     sumDef = do
-      left <- typeOf @left
-      right <- typeOf @right
-      pure [left, right]
+      left <- sumDef @left
+      right <- sumDef @right
+      pure $ left ++ right
     sumDecoders = do
-      left <- decoderOf @left
-      right <- decoderOf @right
-      pure [left, right]
+      left <- sumDecoders @left
+      right <- sumDecoders @right
+      pure (left ++ right)
     sumEncoders = do
-      left <- encoderOf @left
-      right <- encoderOf @right
-      pure [left, right]
+      left <- sumEncoders @left
+      right <- sumEncoders @right
+      pure (left ++ right)
+instance {-# overlaps #-} (HasType a) => SumDef a where
+  sumDef = do
+    typ <- typeOf @a
+    pure [typ]
+  sumDecoders = do
+    dec <- decoderOf @a
+    pure [dec]
+  sumEncoders = do
+    enc <- encoderOf @a
+    pure [enc]
 
 
 localName :: Text -> Qualified
