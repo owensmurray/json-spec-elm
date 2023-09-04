@@ -4,19 +4,23 @@
 
 module Main (main) where
 
+import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.JsonSpec (Specification(JsonArray, JsonDateTime, JsonEither,
-  JsonInt, JsonLet, JsonObject, JsonRef, JsonString, JsonTag))
+  JsonInt, JsonLet, JsonNum, JsonObject, JsonRef, JsonString, JsonTag))
 import Data.JsonSpec.Elm (Named, elmDefs)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
 import Language.Elm.Name (Module)
 import Language.Elm.Pretty (modules)
-import Prelude (Functor(fmap), Semigroup((<>)), ($), (.), IO)
+import Prelude (Bool(True), Functor(fmap), Semigroup((<>)), ($), (.),
+  FilePath, IO, init)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import System.Directory (createDirectoryIfMissing)
 import System.IO (stderr)
+import System.Process (callCommand)
 import Test.Hspec (describe, hspec, it, shouldBe)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
@@ -26,8 +30,8 @@ import qualified Data.Text.IO as TIO
 main :: IO ()
 main =
   hspec $ do
-    describe "thing" $ do
-      it "works" $
+    describe "Code generation" $ do
+      it "works with a complicated schema" $
         let
           actual :: HashMap Module Text
           actual =
@@ -169,6 +173,32 @@ main =
           TIO.hPutStrLn stderr (fromMaybe "" (HM.lookup ["Api", "Data"] actual))
           TIO.hPutStrLn stderr "\n\n==========================================\n\n"
           actual `shouldBe` expected
+      it "works with the example schema" $
+        let
+          actual :: HashMap Module Text
+          actual =
+            fmap ((<> "\n") . renderStrict . layoutPretty defaultLayoutOptions)
+            . modules
+            . Set.toList
+            $ elmDefs (Proxy @ExampleSpec)
+
+        in do
+          traverse_ writeModule (HM.toList actual)
+          callCommand "(cd elm-test; elm-format src/ --yes)"
+          callCommand
+            "(\
+              \cd elm-test; \
+              \yes Y | (\
+                \elm init; \
+                \elm install rtfeldman/elm-iso8601-date-strings; \
+                \elm install elm/json; \
+                \elm install elm/url; \
+                \elm install elm/time; \
+                \elm install elm/http\
+              \); \
+              \elm make src/Api/Data.elm\
+            \)"
+          callCommand "rm -rf elm-test"
 
 
 {-
@@ -224,4 +254,64 @@ type TestSpec =
         '("user", JsonString)
        ])
     ] ( JsonRef "Dashboard")
+
+
+type ExampleSpec =
+  Named "ExampleType"
+    ( JsonObject
+        '[ '("stringField", JsonString)
+         , '( "anonymousObject"
+            , JsonObject
+                '[ '("floatField", JsonNum)
+                 , '("dateField", JsonDateTime)
+                 , '( "sumType1"
+                    , Named "SumTypeWithCustomConstructorNames"
+                        ( JsonEither
+                            ( JsonEither
+                                (Named "IntConstructor" JsonInt)
+                                (Named "StringConstructor" JsonString)
+                            )
+                            (Named "FloatConstructor" JsonNum)
+                        )
+                    )
+                 , '( "sumType2"
+                    , Named "SumTypeWithAutomaticConstructorNames"
+                        ( JsonEither
+                            ( JsonEither
+                                JsonInt
+                                JsonString
+                            )
+                            JsonNum
+                        )
+                    )
+                 ]
+            )
+         , '( "namedObject"
+            , Named "NamedElmRecord"
+                ( JsonObject
+                    '[ '("stringField", JsonString)
+                     , '( "listOfStrings"
+                        , JsonArray JsonString
+                        )
+                     ]
+                )
+            )
+         ]
+    )
+
+
+writeModule :: (Module, Text) -> IO ()
+writeModule (module_, content) = do
+    createDirectoryIfMissing True dirname
+    TIO.writeFile filename content
+  where
+    pathName :: [Text] -> FilePath
+    pathName = ("elm-test/src/" <>) . Text.unpack . Text.intercalate "/"
+
+    filename :: FilePath
+    filename = pathName module_ <> ".elm"
+
+    dirname :: FilePath
+    dirname = pathName (init module_)
+
 
