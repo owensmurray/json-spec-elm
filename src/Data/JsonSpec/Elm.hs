@@ -59,9 +59,11 @@ elmDefs _ =
 class Record (spec :: [(Symbol, Specification)]) where
   recordDefs :: forall v. Definitions [(Name.Field, Type v)]
   recordEncoders :: Definitions [(Text, Name.Field, Expression Void)]
+  recordDecoders :: Definitions [(Text, Expression Void)]
 instance Record '[] where
   recordDefs = pure []
   recordEncoders = pure []
+  recordDecoders = pure []
 instance
     ( HasType spec
     , KnownSymbol name
@@ -78,6 +80,10 @@ instance
       encoder <- encoderOf @spec
       moreFields <- recordEncoders @more
       pure $ (sym @name, fieldName (sym @name), encoder) : moreFields
+    recordDecoders = do
+      dec <- decoderOf @spec
+      more <- recordDecoders @more
+      pure $ ( sym @name , dec) : more
 
 
 class HasType (spec :: Specification) where
@@ -100,14 +106,13 @@ instance {- HasType (JsonObject fields) -}
     ( Record fields
     , BaseFields (Reverse fields)
     , Lambda (LambdaDepth (Reverse fields))
-    , Decoders fields
     )
   =>
     HasType (JsonObject fields)
   where
     typeOf = Type.Record <$> recordDefs @fields
     decoderOf = do
-        decoders <- fieldDecoders @fields
+        decoders <- recordDecoders @fields
         pure $
           foldl
             (\expr (_, decoder) ->
@@ -315,21 +320,6 @@ type family Concat (a :: [k]) (b :: [k]) where
   Concat '[] b = b
   Concat (a : more) b =
     a : Concat more b
-
-
-class Decoders (spec :: [(Symbol, Specification)]) where
-  fieldDecoders :: Definitions [(Text, Expression Void)]
-instance Decoders '[] where
-  fieldDecoders = pure []
-instance {- Decoders ('(name, spec) : more) -}
-    (HasType spec, Decoders more, KnownSymbol name)
-  =>
-    Decoders ('(name, spec) : more)
-  where
-    fieldDecoders = do
-      dec <- decoderOf @spec
-      more <- fieldDecoders @more
-      pure $ ( sym @name , dec) : more
 
 
 class HasDef (def :: (Symbol, Specification)) where
