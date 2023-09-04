@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
@@ -15,6 +16,7 @@ module Data.JsonSpec.Elm (
   elmDefs,
   Definitions,
   HasType(..),
+  Named,
 ) where
 
 
@@ -283,7 +285,7 @@ type family Concat (a :: [k]) (b :: [k]) where
 
 class HasDef (def :: (Symbol, Specification)) where
   defs :: Definitions ()
-instance {-# OVERLAPS #-}
+instance {-# OVERLAPS #-} {- HasDef '(name, JsonEither left right) -}
     ( KnownSymbol name
     , SumDef (JsonEither left right)
     )
@@ -295,10 +297,10 @@ instance {-# OVERLAPS #-}
         let
           constructors :: [(Constructor, [Scope Int Type Void])]
           constructors =
-            [ ( Name.Constructor (constructorName n)
+            [ ( Name.Constructor (constructorName conName n)
               , [Scope type_]
               )
-            | (n, type_) <- zip [(1 :: Int) ..] branches
+            | (n, (conName, type_)) <- zip [1..] branches
             ]
         decoders <- sumDecoders @(JsonEither left right)
         encoders <- sumEncoders @(JsonEither left right)
@@ -313,9 +315,9 @@ instance {-# OVERLAPS #-}
                 `a`
                 Expr.List
                   [ "Json.Decode.map"
-                    `a` Expr.Global (localName (constructorName n))
+                    `a` Expr.Global (localName (constructorName conName n))
                     `a` dec
-                  | (n, dec) <-  zip [(1 :: Int) ..] decoders
+                  | (n, (conName, dec)) <-  zip [1..] decoders
                   ]
               )
           , Def.Constant
@@ -331,18 +333,20 @@ instance {-# OVERLAPS #-}
                 Expr.Lam . toScope $
                   Expr.Case
                     (Expr.Var (B ()))
-                    [ ( Pat.Con (localName (constructorName n)) [Pat.Var 0]
+                    [ ( Pat.Con (localName (constructorName conName n)) [Pat.Var 0]
                       , toScope $
                         fmap absurd encoder `a`
                           Expr.Var (B (0 :: Int))
                       )
-                    | (n, encoder) <- zip [1..] encoders
+                    | (n, (conName, encoder)) <- zip [1..] encoders
                     ]
               )
           ]
       where
-        constructorName :: Int -> Text
-        constructorName n = name <> "_" <> showt n
+        constructorName :: Maybe Text -> Int -> Text
+        constructorName = \cases
+          Nothing n -> name <> "_" <> showt n
+          (Just consName) _ -> consName
 
         name :: Text
         name = sym @name
@@ -380,9 +384,9 @@ instance (HasType spec, KnownSymbol name) => HasDef '(name, spec) where
 
 
 class SumDef (spec :: Specification) where
-  sumDef :: forall v. Definitions [Type v]
-  sumDecoders :: Definitions [Expression Void]
-  sumEncoders :: Definitions [Expression Void]
+  sumDef :: forall v. Definitions [(Maybe Text, Type v)]
+  sumDecoders :: Definitions [(Maybe Text, Expression Void)]
+  sumEncoders :: Definitions [(Maybe Text, Expression Void)]
 instance
     (SumDef left, SumDef right)
   =>
@@ -400,16 +404,32 @@ instance
       left <- sumEncoders @left
       right <- sumEncoders @right
       pure (left ++ right)
+instance
+    ( HasType def
+    , KnownSymbol name
+    )
+  =>
+    SumDef (JsonLet '[ '(name, def) ] (JsonRef name))
+  where
+    sumDef = do
+      typ <- typeOf @def
+      pure [(Just (sym @name), typ)]
+    sumDecoders = do
+      dec <- decoderOf @def
+      pure [(Just (sym @name), dec)]
+    sumEncoders = do
+      enc <- encoderOf @def
+      pure [(Just (sym @name), enc)]
 instance {-# overlaps #-} (HasType a) => SumDef a where
   sumDef = do
     typ <- typeOf @a
-    pure [typ]
+    pure [(Nothing, typ)]
   sumDecoders = do
     dec <- decoderOf @a
-    pure [dec]
+    pure [(Nothing, dec)]
   sumEncoders = do
     enc <- encoderOf @a
-    pure [enc]
+    pure [(Nothing, enc)]
 
 
 localName :: Text -> Qualified
@@ -485,5 +505,12 @@ lam
   -> Expression v
 lam f =
   Expr.Lam . toScope $ f (Expr.Var (B ()))
+
+
+{-|
+  Helper for giving a specification a name. This is especially useful for
+  making sure sum type data constructors have meaningful names.
+-}
+type Named name def = JsonLet '[ '(name, def) ] (JsonRef name)
 
 

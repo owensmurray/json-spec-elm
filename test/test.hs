@@ -7,7 +7,7 @@ module Main (main) where
 import Data.HashMap.Strict (HashMap)
 import Data.JsonSpec (Specification(JsonArray, JsonDateTime, JsonEither,
   JsonInt, JsonLet, JsonObject, JsonRef, JsonString, JsonTag))
-import Data.JsonSpec.Elm (elmDefs)
+import Data.JsonSpec.Elm (Named, elmDefs)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
@@ -107,7 +107,7 @@ main =
                   , ""
                   , "inviteDecoder : Json.Decode.Decoder Invite"
                   , "inviteDecoder ="
-                  , "    Json.Decode.oneOf [ Json.Decode.map Invite_1 (Json.Decode.succeed (\\a b -> { type_ = a"
+                  , "    Json.Decode.oneOf [ Json.Decode.map InviteUser (Json.Decode.succeed (\\a b -> { type_ = a"
                   , "    , username = b }) |>"
                   , "    Json.Decode.andThen (\\a -> Json.Decode.map a (Json.Decode.string |>"
                   , "    Json.Decode.andThen (\\b -> if b == \"discord-user\" then"
@@ -116,7 +116,7 @@ main =
                   , "    else"
                   , "        Json.Decode.fail \"Tag mismatch\"))) |>"
                   , "    Json.Decode.andThen (\\a -> Json.Decode.map a Json.Decode.string))"
-                  , "    , Json.Decode.map Invite_2 (Json.Decode.succeed (\\a b -> { type_ = a"
+                  , "    , Json.Decode.map InviteGuild (Json.Decode.succeed (\\a b -> { type_ = a"
                   , "    , guild = b }) |>"
                   , "    Json.Decode.andThen (\\a -> Json.Decode.map a (Json.Decode.string |>"
                   , "    Json.Decode.andThen (\\b -> if b == \"discord-server\" then"
@@ -133,19 +133,19 @@ main =
                   , "inviteEncoder : Invite -> Json.Encode.Value"
                   , "inviteEncoder a ="
                   , "    case a of"
-                  , "        Invite_1 b ->"
+                  , "        InviteUser b ->"
                   , "            (\\c -> Json.Encode.object [ (\"type\" , always (Json.Encode.string \"discord-user\") c.type_)"
                   , "            , (\"username\" , Json.Encode.string c.username) ]) b"
                   , ""
-                  , "        Invite_2 b ->"
+                  , "        InviteGuild b ->"
                   , "            (\\c -> Json.Encode.object [ (\"type\" , always (Json.Encode.string \"discord-server\") c.type_)"
                   , "            , (\"guild\" , (\\d -> Json.Encode.object [ (\"id\" , Json.Encode.string d.id)"
                   , "            , (\"name\" , Json.Encode.string d.name) ]) c.guild) ]) b"
                   , ""
                   , ""
                   , "type Invite "
-                  , "    = Invite_1 { type_ : (), username : String }"
-                  , "    | Invite_2 { type_ : (), guild : { id : String, name : String } }"
+                  , "    = InviteUser { type_ : (), username : String }"
+                  , "    | InviteGuild { type_ : (), guild : { id : String, name : String } }"
                   , ""
                   , ""
                   , "type alias Dashboard  ="
@@ -201,17 +201,17 @@ type TestSpec =
                 JsonLet '[
                   '("Invite",
                     JsonEither
-                      (JsonObject '[
+                      (Named "InviteUser" (JsonObject '[
                         '("type", JsonTag "discord-user"),
                         '("username", JsonString)
-                      ])
-                      (JsonObject '[
+                      ]))
+                      (Named "InviteGuild" (JsonObject '[
                         '("type", JsonTag "discord-server"),
                         '("guild", JsonObject '[
                           '("id", JsonString),
                           '("name", JsonString)
                          ])
-                      ])
+                      ]))
                   )
                 ]
                 (JsonArray (JsonRef "Invite")))),
