@@ -144,7 +144,6 @@ instance {- HasType (JsonObject fields) -}
       where
         var :: Bound.Var () a
         var = B ()
-
 instance (HasType spec) => HasType (JsonArray spec) where
   typeOf = do
     elemType <- typeOf @spec
