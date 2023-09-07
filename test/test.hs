@@ -296,6 +296,18 @@ type ExampleSpec =
                      ]
                 )
             )
+         , '( "newtypedObject"
+            , Named "NewtypedElmRecord"
+                ( Named "Cons"
+                    ( JsonObject
+                        '[ '("stringField", JsonString)
+                         , '( "listOfStrings"
+                            , JsonArray JsonString
+                            )
+                         ]
+                    )
+                )
+            )
          ]
     )
 
