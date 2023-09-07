@@ -87,7 +87,7 @@ instance
       more <- recordDecoders @more
       pure $
         ( sym @name
-        , dec
+        , "Json.Decode.field" `a` Expr.String (sym @name) `a` dec
         ) : more
 
 
