@@ -21,7 +21,8 @@ module Data.JsonSpec.Elm (
 
 
 import Bound (Scope(Scope), Var(B), abstract1, closed, toScope)
-import Control.Monad.Writer (MonadWriter(tell), Writer, execWriter)
+import Control.Monad.Writer (MonadTrans(lift), MonadWriter(tell),
+  Writer, execWriter)
 import Data.JsonSpec (Specification(JsonArray, JsonBool, JsonDateTime,
   JsonEither, JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject,
   JsonRef, JsonString, JsonTag))
@@ -85,7 +86,10 @@ instance
     recordDecoders = do
       dec <- decoderOf @spec
       more <- recordDecoders @more
-      pure $ ( sym @name , dec) : more
+      pure $
+        ( sym @name
+        , "Json.Decode.field" `a` Expr.String (sym @name) `a` dec
+        ) : more
 
 
 class HasType (spec :: Specification) where
@@ -255,7 +259,6 @@ instance {- HasType (JsonEither left right) -}
           :$$: Lits.Text ">   | MySum_3 Float"
           :$$: Lits.Text ">   | MySum_4 Bool"
           :$$: Lits.Text ""
-
         )
     )
   =>
@@ -285,7 +288,7 @@ type family Concat (a :: [k]) (b :: [k]) where
 
 class HasDef (def :: (Symbol, Specification)) where
   defs :: Definitions ()
-instance {-# OVERLAPS #-} {- HasDef '(name, JsonEither left right) -}
+instance {- HasDef '(name, JsonEither left right) -}
     ( KnownSymbol name
     , SumDef (JsonEither left right)
     )
@@ -333,10 +336,12 @@ instance {-# OVERLAPS #-} {- HasDef '(name, JsonEither left right) -}
                 Expr.Lam . toScope $
                   Expr.Case
                     (Expr.Var (B ()))
-                    [ ( Pat.Con (localName (constructorName conName n)) [Pat.Var 0]
+                    [ ( Pat.Con
+                          (localName (constructorName conName n))
+                          [Pat.Var 0]
                       , toScope $
-                        fmap absurd encoder `a`
-                          Expr.Var (B (0 :: Int))
+                          fmap absurd encoder `a`
+                            Expr.Var (B (0 :: Int))
                       )
                     | (n, (conName, encoder)) <- zip [1..] encoders
                     ]
@@ -350,44 +355,100 @@ instance {-# OVERLAPS #-} {- HasDef '(name, JsonEither left right) -}
 
         name :: Text
         name = sym @name
-instance (HasType spec, KnownSymbol name) => HasDef '(name, spec) where
-  defs = do
-    type_ <- typeOf @spec
-    dec <- decoderOf @spec
-    enc <- encoderOf @spec
-    tell . Set.fromList $
-      [ Def.Alias
-          (localName (sym @name))
-          0
-          (Scope type_)
-      , Def.Constant
-          (decoderName @name)
-          0
-          ( Scope
-              (
-                "Json.Decode.Decoder" `ta`
-                  Type.Global (localName (sym @name))
+instance {- HasDef '(name, Named consName spec) -}
+    ( HasType spec
+    , KnownSymbol consName
+    , KnownSymbol name
+    )
+  =>
+    HasDef '(name, Named consName spec)
+  where
+    defs = do
+      typ <- typeOf @spec
+      dec <- decoderOf @spec
+      enc <- encoderOf @spec
+      tell . Set.fromList $
+        [ Def.Type (localName (sym @name)) 0
+            [ ( Name.Constructor (sym @consName)
+              , [ lift typ ]
               )
-          )
-          dec
-      , Def.Constant
-          (encoderName @name)
-          0
-          ( Scope
-              ( Type.Fun
-                  (Type.Global $ localName (sym @name))
-                  "Json.Encode.Value"
-              )
-          )
-          enc
-      ]
+            ]
+        , Def.Constant
+            (decoderName @name)
+            0
+            ( Scope
+                (
+                  "Json.Decode.Decoder" `ta`
+                    Type.Global (localName (sym @name))
+                )
+            )
+            ( "Json.Decode.map"
+                `a` Expr.Global (localName (sym @consName))
+                `a` dec
+            )
+        , Def.Constant
+            (encoderName @name)
+            0
+            ( Scope
+                ( Type.Fun
+                    (Type.Global $ localName (sym @name))
+                    "Json.Encode.Value"
+                )
+            )
+            ( lam $ \var ->
+                Expr.Case
+                  var
+                  [ (Pat.Con
+                      (localName (sym @consName))
+                      [ Pat.Var 0 ]
+                    , toScope $
+                        (absurd <$> enc) `a` Expr.Var (B 0)
+                    )
+                  ]
+            )
+        ]
+instance {- HasDef '(name, spec) -}
+    {-# overlaps #-} (HasType spec, KnownSymbol name)
+  =>
+    HasDef '(name, spec)
+  where
+    defs = do
+      type_ <- typeOf @spec
+      dec <- decoderOf @spec
+      enc <- encoderOf @spec
+      tell . Set.fromList $
+        [ Def.Alias
+            (localName (sym @name))
+            0
+            (Scope type_)
+        , Def.Constant
+            (decoderName @name)
+            0
+            ( Scope
+                (
+                  "Json.Decode.Decoder" `ta`
+                    Type.Global (localName (sym @name))
+                )
+            )
+            dec
+        , Def.Constant
+            (encoderName @name)
+            0
+            ( Scope
+                ( Type.Fun
+                    (Type.Global $ localName (sym @name))
+                    "Json.Encode.Value"
+                )
+            )
+            enc
+        ]
 
 
 class SumDef (spec :: Specification) where
   sumDef :: forall v. Definitions [(Maybe Text, Type v)]
   sumDecoders :: Definitions [(Maybe Text, Expression Void)]
   sumEncoders :: Definitions [(Maybe Text, Expression Void)]
-instance
+instance {- SumDef (JsonEither left right) -}
     (SumDef left, SumDef right)
   =>
     SumDef (JsonEither left right)
@@ -404,7 +465,7 @@ instance
       left <- sumEncoders @left
       right <- sumEncoders @right
       pure (left ++ right)
-instance
+instance {- SumDef (JsonLet '[ '(name, def) ] (JsonRef name)) -}
     ( HasType def
     , KnownSymbol name
     )
@@ -457,6 +518,7 @@ lower txt =
 
 decoderName :: forall name. (KnownSymbol name) => Qualified
 decoderName = localName (lower (sym @name) <> "Decoder")
+
 
 encoderName :: forall name. (KnownSymbol name) => Qualified
 encoderName = localName (lower (sym @name) <> "Encoder")
