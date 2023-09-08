@@ -12,6 +12,87 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-|
+  This module provide a way to generate Elm types, encoders, and
+  decoders for [json-spec](https://hackage.haskell.org/package/json-spec)
+  [Specification](https://hackage.haskell.org/package/json-spec/docs/Data-JsonSpec.html#t:Specification)s
+
+  Generally you will probably want `elmDefs`, but sometimes you might
+  want to directly use the methods of `HasType`.
+
+  Since not every part of a 'Specification' may have a name, we can
+  generate encoders and decoders for anonymous Elm types like records,
+  as well as named Elm types and type aliases. This package figures out
+  how to name things given the following rules:
+
+  * If a name appears in a 'JsonLet' binding, then it gets a name in Elm as a
+    type or type alias.
+
+  * If a second 'JsonLet' binding, with exactly one definition, of the
+    form @JsonLet '[ '(name, def) ] (JsonRef name)@ appears as the RHS of
+    a 'JsonLet'binding, then that is interpreted as a constructor name,
+    and the generated Elm definition will be a regular type instead of a
+    type alias. See 'Named' for an easy shorthand way to spell @JsonLet '[
+    '(name, def) ] (JsonRef name)@
+
+  * For any 'Named' leaf of a tree of 'JsonEither's, the name is interpreted as
+    a data constructor name, otherwise a data constructor name is
+    auto-generated.
+
+    == Examples:
+
+    === Type alias
+
+    The specification
+
+    > Named "MyType" JsonString
+
+    will produce the Elm type
+
+    > type alias MyType = String
+
+    === Type with a constructor
+
+    The specification
+
+    > Named "MyType" (Named "MyDataConstructor" JsonString)
+
+    will produce the Elm type
+
+    > type MyType = MyDataConstructor String
+
+    === Sum Type
+
+    Note that the /root/ of a tree of 'JsonEither's /must/ be named, because
+    Elm has no way to represent anonymous sum types.
+
+    The specification
+
+    > Named "MySumType"
+    >   ( JsonEither
+    >       (Named "AnInt" JsonInt)
+    >       ( JsonEither
+    >           JsonFloat -- note the omitted name
+    >           ( Named "AString" JsonString) 
+    >       )
+    >   )
+
+    will produce the Elm type
+
+    > type MySumType
+    >   = AnInt Int
+    >   | MySumType_2 Float -- auto-generated constructor name.
+    >   | AString String
+
+    == Producing actual Elm code
+    
+    This package gets you as far as having a collection of
+    'Definition's in hand, which come from the 'elm-syntax'
+    package. You will need to use the pretty printing
+    features of that package to actually produce code. See
+    https://hackage.haskell.org/package/elm-syntax/docs/Language-Elm-Pretty.html,
+    or you can look at the source code for the tests in this package.
+-}
 module Data.JsonSpec.Elm (
   elmDefs,
   Definitions,
@@ -51,6 +132,12 @@ import qualified Language.Elm.Pattern as Pat
 import qualified Language.Elm.Type as Type
 
 
+{-|
+  Generate Elm type, encoder, and decoder 'Definition's for all /named/
+  types in a 'Specification'. Note that this will not produce any types,
+  decoders, or encoders for anonymous parts of the 'Specification',
+  since we wouldn't know what to names to give those things in Elm.
+-}
 elmDefs
   :: forall spec. (HasType spec)
   => Proxy (spec :: Specification)
@@ -92,9 +179,31 @@ instance
         ) : more
 
 
+{-|
+  Translates 'Specification's into "anonymous" Elm types (where
+  "anonymous" really means the RHS of a definition, which could be truly
+  anonymous but might in fact be a reference to something previously named
+  'Definition').
+-}
 class HasType (spec :: Specification) where
+
+  {-|
+    Produce the anonymous Elm type for the spec, collecting any necessary
+    'Definition's along the way.
+  -}
   typeOf :: forall v. Definitions (Type v)
+
+  {-|
+    Produce the Elm Decode for the spec, collecting any necessary
+    'Definition's along the way
+  -}
   decoderOf :: Definitions (Expression Void)
+
+
+  {-|
+    Produce the Elm Encoder for the spec, collecting any necessary
+    'Definition's along the way.
+  -}
   encoderOf :: Definitions (Expression Void)
 instance HasType JsonString where
   typeOf = pure "String.String"
@@ -231,36 +340,7 @@ instance {- HasType (JsonLet ( def : more ) spec) -}
       defs @def
       encoderOf @(JsonLet more spec)
 instance {- HasType (JsonEither left right) -}
-    ( TypeError
-        ( Lits.Text "Elm doesn't support anonymous sum types, so if you "
-          :<>: Lits.Text "want to use (possibly nested) `JsonEither` "
-          :<>: Lits.Text "you must give it a name using `JsonLet`, e.g:"
-          :$$: Lits.Text ""
-          :$$: Lits.Text "> JsonLet"
-          :$$: Lits.Text ">   '[ '( \"MySum\""
-          :$$: Lits.Text ">       , JsonEither"
-          :$$: Lits.Text ">           ( JsonEither"
-          :$$: Lits.Text ">               JsonInt"
-          :$$: Lits.Text ">               JsonString"
-          :$$: Lits.Text ">           )"
-          :$$: Lits.Text ">           ( JsonEither"
-          :$$: Lits.Text ">               JsonFloat"
-          :$$: Lits.Text ">               JsonBool"
-          :$$: Lits.Text ">           )"
-          :$$: Lits.Text ">       )"
-          :$$: Lits.Text ">    ]"
-          :$$: Lits.Text ">    (JsonRef \"MySum\")"
-          :$$: Lits.Text ""
-          :$$: Lits.Text "This will produce the Elm type"
-          :$$: Lits.Text ""
-          :$$: Lits.Text "> type MySum"
-          :$$: Lits.Text ">   = MySum_1 Int"
-          :$$: Lits.Text ">   | MySum_2 String"
-          :$$: Lits.Text ">   | MySum_3 Float"
-          :$$: Lits.Text ">   | MySum_4 Bool"
-          :$$: Lits.Text ""
-        )
-    )
+    (TypeError AnonSumTypeError)
   =>
     HasType (JsonEither left right)
   where
@@ -574,5 +654,36 @@ lam f =
   making sure sum type data constructors have meaningful names.
 -}
 type Named name def = JsonLet '[ '(name, def) ] (JsonRef name)
+
+
+type AnonSumTypeError =
+  ( Lits.Text "Elm doesn't support anonymous sum types, so if you "
+    :<>: Lits.Text "want to use (possibly nested) `JsonEither` "
+    :<>: Lits.Text "you must give it a name using `JsonLet`, e.g:"
+    :$$: Lits.Text ""
+    :$$: Lits.Text "> JsonLet"
+    :$$: Lits.Text ">   '[ '( \"MySum\""
+    :$$: Lits.Text ">       , JsonEither"
+    :$$: Lits.Text ">           ( JsonEither"
+    :$$: Lits.Text ">               JsonInt"
+    :$$: Lits.Text ">               JsonString"
+    :$$: Lits.Text ">           )"
+    :$$: Lits.Text ">           ( JsonEither"
+    :$$: Lits.Text ">               JsonFloat"
+    :$$: Lits.Text ">               JsonBool"
+    :$$: Lits.Text ">           )"
+    :$$: Lits.Text ">       )"
+    :$$: Lits.Text ">    ]"
+    :$$: Lits.Text ">    (JsonRef \"MySum\")"
+    :$$: Lits.Text ""
+    :$$: Lits.Text "This will produce the Elm type"
+    :$$: Lits.Text ""
+    :$$: Lits.Text "> type MySum"
+    :$$: Lits.Text ">   = MySum_1 Int"
+    :$$: Lits.Text ">   | MySum_2 String"
+    :$$: Lits.Text ">   | MySum_3 Float"
+    :$$: Lits.Text ">   | MySum_4 Bool"
+    :$$: Lits.Text ""
+  )
 
 
