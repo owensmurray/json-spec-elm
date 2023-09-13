@@ -7,7 +7,7 @@ module Main (main) where
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.JsonSpec (Specification(JsonArray, JsonDateTime, JsonEither,
-  JsonInt, JsonLet, JsonNum, JsonObject, JsonRef, JsonString, JsonTag))
+  JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString, JsonTag))
 import Data.JsonSpec.Elm (Named, elmDefs)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy(Proxy))
@@ -200,6 +200,50 @@ main =
             \)"
           callCommand "rm -rf elm-test"
 
+      it "works with nullable values" $
+        let
+          actual :: HashMap Module Text
+          actual =
+            fmap ((<> "\n") . renderStrict . layoutPretty defaultLayoutOptions)
+            . modules
+            . Set.toList
+            $ elmDefs (Proxy @NullableSpec)
+
+          expected :: HashMap Module Text
+          expected = 
+            HM.singleton
+              ["Api", "Data"]
+              ( Text.unlines
+                  [ "module Api.Data exposing"
+                  , "    ( nullableIntDecoder"
+                  , "    , nullableIntEncoder"
+                  , "    , NullableInt"
+                  , "    )"
+                  , ""
+                  , "import Json.Decode"
+                  , "import Json.Encode"
+                  , ""
+                  , ""
+                  , "nullableIntDecoder : Json.Decode.Decoder NullableInt"
+                  , "nullableIntDecoder ="
+                  , "    Json.Decode.nullable Json.Decode.int"
+                  , ""
+                  , ""
+                  , "nullableIntEncoder : NullableInt -> Json.Encode.Value"
+                  , "nullableIntEncoder a ="
+                  , "    Maybe.withDefault Json.Encode.null (Maybe.map Json.Encode.int a)"
+                  , ""
+                  , ""
+                  , "type alias NullableInt  ="
+                  , "    Maybe Int"
+                  ]
+              )
+        in do
+          TIO.hPutStrLn stderr "==========================================\n\n"
+          TIO.hPutStrLn stderr (fromMaybe "" (HM.lookup ["Api", "Data"] actual))
+          TIO.hPutStrLn stderr "\n\n==========================================\n\n"
+          actual `shouldBe` expected
+
 
 {-
   This spec is copied from an as-yet uncompleted personal project. I
@@ -311,6 +355,9 @@ type ExampleSpec =
          ]
     )
 
+type NullableSpec =
+  Named "NullableInt"
+    (JsonNullable JsonInt)
 
 writeModule :: (Module, Text) -> IO ()
 writeModule (module_, content) = do
