@@ -276,7 +276,7 @@ instance (HasType spec) => HasType (JsonNullable spec) where
       Expr.Lam . toScope $
         Expr.apps
           "Maybe.withDefault"
-          [ "Json.Decode.null"
+          [ "Json.Encode.null"
           , Expr.apps
               "Maybe.map"
               [ Expr.bind Expr.Global absurd encoder
