@@ -184,22 +184,7 @@ main =
             $ elmDefs (Proxy @ExampleSpec)
 
         in do
-          traverse_ writeModule (HM.toList actual)
-          callCommand "(cd elm-test; elm-format src/ --yes)"
-          callCommand
-            "(\
-              \cd elm-test; \
-              \yes Y | (\
-                \elm init; \
-                \elm install rtfeldman/elm-iso8601-date-strings; \
-                \elm install elm/json; \
-                \elm install elm/url; \
-                \elm install elm/time; \
-                \elm install elm/http\
-              \); \
-              \elm make src/Api/Data.elm\
-            \)"
-          callCommand "rm -rf elm-test"
+          compileElm actual
       it "works with nullable values" $
         let
           actual :: HashMap Module Text
@@ -243,6 +228,26 @@ main =
           TIO.hPutStrLn stderr (fromMaybe "" (HM.lookup ["Api", "Data"] actual))
           TIO.hPutStrLn stderr "\n\n==========================================\n\n"
           actual `shouldBe` expected
+
+
+compileElm :: HashMap Module Text -> IO ()
+compileElm code = do
+  traverse_ writeModule (HM.toList code)
+  callCommand "(cd elm-test; elm-format src/ --yes)"
+  callCommand
+    "(\
+      \cd elm-test; \
+      \yes Y | (\
+        \elm init; \
+        \elm install rtfeldman/elm-iso8601-date-strings; \
+        \elm install elm/json; \
+        \elm install elm/url; \
+        \elm install elm/time; \
+        \elm install elm/http\
+      \); \
+      \elm make src/Api/Data.elm\
+    \)"
+  callCommand "rm -rf elm-test"
 
 
 {-
