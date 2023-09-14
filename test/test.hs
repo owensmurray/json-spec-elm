@@ -27,6 +27,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TIO
 
+
 main :: IO ()
 main =
   hspec $ do
@@ -199,7 +200,6 @@ main =
               \elm make src/Api/Data.elm\
             \)"
           callCommand "rm -rf elm-test"
-
       it "works with nullable values" $
         let
           actual :: HashMap Module Text
@@ -355,9 +355,11 @@ type ExampleSpec =
          ]
     )
 
+
 type NullableSpec =
   Named "NullableInt"
     (JsonNullable JsonInt)
+
 
 writeModule :: (Module, Text) -> IO ()
 writeModule (module_, content) = do
