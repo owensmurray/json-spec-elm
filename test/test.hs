@@ -174,6 +174,7 @@ main =
           TIO.hPutStrLn stderr (fromMaybe "" (HM.lookup ["Api", "Data"] actual))
           TIO.hPutStrLn stderr "\n\n==========================================\n\n"
           actual `shouldBe` expected
+          compileElm actual
       it "works with the example schema" $
         let
           actual :: HashMap Module Text
@@ -228,6 +229,7 @@ main =
           TIO.hPutStrLn stderr (fromMaybe "" (HM.lookup ["Api", "Data"] actual))
           TIO.hPutStrLn stderr "\n\n==========================================\n\n"
           actual `shouldBe` expected
+          compileElm actual
 
 
 compileElm :: HashMap Module Text -> IO ()
