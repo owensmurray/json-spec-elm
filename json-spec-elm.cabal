@@ -21,14 +21,14 @@ extra-source-files:
 
 common dependencies
   build-depends:
-    , base                 >= 4.17.2.1 && < 4.18
+    , base                 >= 4.17.2.1 && < 4.20
     , bound                >= 2.0.7    && < 2.1
     , containers           >= 0.6.7    && < 0.7
     , elm-syntax           >= 0.3.2.0  && < 0.4
     , json-spec            >= 0.2.1.0  && < 0.3
-    , mtl                  >= 2.2.2    && < 2.3
+    , mtl                  >= 2.2.2    && < 2.4
     , prettyprinter        >= 1.7.1    && < 1.8
-    , text                 >= 2.0.2    && < 2.1
+    , text                 >= 2.0.2    && < 2.2
     , unordered-containers >= 0.2.19.1 && < 0.3
 
 common warnings
