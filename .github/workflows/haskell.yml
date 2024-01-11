@@ -1,4 +1,4 @@
-on: [pull_request]
+on: [push]
 name: Haskell Builds
 jobs:
   build:
@@ -29,6 +29,8 @@ jobs:
       - name: Configure the Build
         run: |
           rm cabal.project.freeze
+          # We can't run tests in this project because testing requires
+          # Elm to be installed.
           cabal configure
           cabal build --dry-run
 
@@ -57,8 +59,6 @@ jobs:
       # Cabal build
       - name: Cabal Bulid
         run: |
-          project="$(cat cabal.project | grep -v -- '-Werror')"
-          echo "$project" > cabal.project
           cabal build all
 
   build-lower-bounds:
@@ -103,6 +103,8 @@ jobs:
           EOF
           ) > cabal.project
           rm cabal.project.freeze
+          # We can't run tests in this project because testing requires
+          # Elm to be installed.
           cabal configure
           cabal build --dry-run
 
@@ -128,7 +130,7 @@ jobs:
           path: ${{ steps.setup.outputs.cabal-store }}
           key: ${{ steps.cache.outputs.cache-primary-key }}
 
-      # Cabal build
+      # Cabal Build
       - name: Cabal Bulid
         run: cabal build all
 
