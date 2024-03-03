@@ -642,6 +642,17 @@ recordConstructor records =
         ]
 
 
+{-|
+  Produce lambda in Elm out of a haskell function.
+
+  > lam (\var ->
+  >   "elmFunction" `a` var
+  > )
+
+  produces an Elm lambda expression of the form
+
+  > (\var -> elmFunction var)
+-}
 lam
   :: (Expression (Var () a) -> Expression (Var () v))
   -> Expression v
