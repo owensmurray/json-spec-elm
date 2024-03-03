@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                json-spec-elm
-version:             0.3.0.4
+version:             0.4.0.0
 synopsis:            Elm code generate for `json-spec`.
 description:         
                      Produce elm types, encoders, and decoders from a
@@ -12,7 +12,7 @@ license:             MIT
 license-file:        LICENSE
 author:              Rick Owens
 maintainer:          rick@owensmurray.com
-copyright:           2022 Rick Owens
+copyright:           2024 Rick Owens
 category:            JSON, Elm
 build-type:          Simple
 extra-source-files:
