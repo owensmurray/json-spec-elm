@@ -73,7 +73,7 @@
     >       (Named "AnInt" JsonInt)
     >       ( JsonEither
     >           JsonFloat -- note the omitted name
-    >           ( Named "AString" JsonString) 
+    >           ( Named "AString" JsonString)
     >       )
     >   )
 
@@ -85,7 +85,7 @@
     >   | AString String
 
     == Producing actual Elm code
-    
+
     This package gets you as far as having a collection of
     'Definition's in hand, which come from the 'elm-syntax'
     package. You will need to use the pretty printing
@@ -104,9 +104,10 @@ module Data.JsonSpec.Elm (
 import Bound (Scope(Scope), Var(B), abstract1, closed, toScope)
 import Control.Monad.Writer (MonadTrans(lift), MonadWriter(tell),
   Writer, execWriter)
-import Data.JsonSpec (Specification(JsonArray, JsonBool, JsonDateTime,
-  JsonEither, JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject,
-  JsonRef, JsonString, JsonTag))
+import Data.JsonSpec (FieldSpec(Optional, Required),
+  Specification(JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt,
+  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString,
+  JsonTag))
 import Data.Proxy (Proxy(Proxy))
 import Data.Set (Set)
 import Data.String (IsString(fromString))
@@ -118,9 +119,10 @@ import Language.Elm.Definition (Definition)
 import Language.Elm.Expression ((|>), Expression, if_)
 import Language.Elm.Name (Constructor, Qualified)
 import Language.Elm.Type (Type)
-import Prelude (Applicative(pure), Foldable(foldl, foldr), Functor(fmap),
-  Maybe(Just, Nothing), Monad((>>)), Semigroup((<>)), Show(show), ($),
-  (++), (.), (<$>), Int, error, fst, snd, zip)
+import Prelude (Applicative(pure), Bool(False, True), Foldable(foldl,
+  foldr), Functor(fmap), Maybe(Just, Nothing), Monad((>>)),
+  Semigroup((<>)), Show(show), ($), (++), (.), (<$>), Int, error, fst,
+  snd, zip)
 import qualified Data.Char as Char
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -146,9 +148,9 @@ elmDefs _ =
   execWriter $ typeOf @spec >> decoderOf @spec
 
 
-class Record (spec :: [(Symbol, Specification)]) where
+class Record (spec :: [FieldSpec]) where
   recordDefs :: forall v. Definitions [(Name.Field, Type v)]
-  recordEncoders :: Definitions [(Text, Name.Field, Expression Void)]
+  recordEncoders :: Definitions [(Bool, Text, Name.Field, Expression Void)]
   recordDecoders :: Definitions [(Text, Expression Void)]
 instance Record '[] where
   recordDefs = pure []
@@ -160,7 +162,7 @@ instance
     , Record more
     )
   =>
-    Record ( '(name, spec) : more )
+    Record ( Required name spec : more )
   where
     recordDefs = do
       type_ <- typeOf @spec
@@ -169,13 +171,37 @@ instance
     recordEncoders = do
       encoder <- encoderOf @spec
       moreFields <- recordEncoders @more
-      pure $ (sym @name, fieldName (sym @name), encoder) : moreFields
+      pure $ (True, sym @name, fieldName (sym @name), encoder) : moreFields
     recordDecoders = do
       dec <- decoderOf @spec
       more <- recordDecoders @more
       pure $
         ( sym @name
         , "Json.Decode.field" `a` Expr.String (sym @name) `a` dec
+        ) : more
+instance
+    ( HasType spec
+    , KnownSymbol name
+    , Record more
+    )
+  =>
+    Record ( Optional name spec : more )
+  where
+    recordDefs = do
+      type_ <- ta "Maybe.Maybe" <$> typeOf @spec
+      moreFields <- recordDefs @more
+      pure $ (fieldName (sym @name), type_) : moreFields
+    recordEncoders = do
+      encoder <- encoderOf @spec
+      moreFields <- recordEncoders @more
+      pure $ (False, sym @name, fieldName (sym @name), encoder) : moreFields
+    recordDecoders = do
+      dec <- decoderOf @spec
+      more <- recordDecoders @more
+      pure $
+        ( sym @name
+        , "Json.Decode.maybe"
+            `a` ("Json.Decode.field" `a` Expr.String (sym @name) `a` dec)
         ) : more
 
 
@@ -233,21 +259,36 @@ instance (Record fields) => HasType (JsonObject fields) where
         ("Json.Decode.succeed" `a` recordConstructor (fst <$> decoders))
         (snd <$> decoders)
   encoderOf = do
-      fields <- recordEncoders @fields
-      pure $
-        Expr.Lam . toScope $
-          "Json.Encode.object" `a`
-            Expr.List
-              [ Expr.apps "Basics.," [
-                Expr.String jsonField,
-                Expr.bind Expr.Global absurd encoder `a`
-                  (Expr.Proj elmField `a` Expr.Var var)
-                ]
-              | (jsonField, elmField, encoder) <- fields
-              ]
-    where
-      var :: Bound.Var () a
-      var = B ()
+    fields <- recordEncoders @fields
+    pure $
+      lam (\var ->
+        "Json.Encode.object" `a`
+          (
+            "List.filterMap"
+            `a` "Basics.identity"
+            `a` Expr.List
+                  [ if required then
+                      "Maybe.Just" `a`
+                        Expr.apps "Basics.,"
+                          [
+                            Expr.String jsonField,
+                            fmap absurd encoder `a`
+                              (Expr.Proj elmField `a` var)
+                          ]
+                    else
+                      "Maybe.map"
+                      `a` lam (\inner ->
+                            Expr.apps "Basics.,"
+                              [
+                                Expr.String jsonField,
+                                fmap absurd encoder `a` inner
+                              ]
+                          )
+                      `a` (Expr.Proj elmField `a` var)
+                  | (required, jsonField, elmField, encoder) <- fields
+                  ]
+          )
+      )
 instance (HasType spec) => HasType (JsonArray spec) where
   typeOf = do
     elemType <- typeOf @spec
@@ -279,7 +320,7 @@ instance (HasType spec) => HasType (JsonNullable spec) where
           [ "Json.Encode.null"
           , Expr.apps
               "Maybe.map"
-              [ Expr.bind Expr.Global absurd encoder
+              [ fmap absurd encoder
               , Expr.Var (B ())
               ]
           ]
@@ -642,6 +683,17 @@ recordConstructor records =
         ]
 
 
+{-|
+  Produce lambda in Elm out of a haskell function.
+
+  > lam (\var ->
+  >   "elmFunction" `a` var
+  > )
+
+  produces an Elm lambda expression of the form
+
+  > (\var -> elmFunction var)
+-}
 lam
   :: (Expression (Var () a) -> Expression (Var () v))
   -> Expression v
