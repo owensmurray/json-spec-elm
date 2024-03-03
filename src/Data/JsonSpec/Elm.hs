@@ -233,21 +233,19 @@ instance (Record fields) => HasType (JsonObject fields) where
         ("Json.Decode.succeed" `a` recordConstructor (fst <$> decoders))
         (snd <$> decoders)
   encoderOf = do
-      fields <- recordEncoders @fields
-      pure $
-        Expr.Lam . toScope $
-          "Json.Encode.object" `a`
-            Expr.List
-              [ Expr.apps "Basics.," [
-                Expr.String jsonField,
-                Expr.bind Expr.Global absurd encoder `a`
-                  (Expr.Proj elmField `a` Expr.Var var)
-                ]
-              | (jsonField, elmField, encoder) <- fields
+    fields <- recordEncoders @fields
+    pure $
+      lam (\var ->
+        "Json.Encode.object" `a`
+          Expr.List
+            [ Expr.apps "Basics.," [
+              Expr.String jsonField,
+              Expr.bind Expr.Global absurd encoder `a`
+                (Expr.Proj elmField `a` var)
               ]
-    where
-      var :: Bound.Var () a
-      var = B ()
+            | (jsonField, elmField, encoder) <- fields
+            ]
+      )
 instance (HasType spec) => HasType (JsonArray spec) where
   typeOf = do
     elemType <- typeOf @spec
