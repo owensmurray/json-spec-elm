@@ -240,7 +240,7 @@ instance (Record fields) => HasType (JsonObject fields) where
           Expr.List
             [ Expr.apps "Basics.," [
               Expr.String jsonField,
-              Expr.bind Expr.Global absurd encoder `a`
+              fmap absurd encoder `a`
                 (Expr.Proj elmField `a` var)
               ]
             | (jsonField, elmField, encoder) <- fields
@@ -277,7 +277,7 @@ instance (HasType spec) => HasType (JsonNullable spec) where
           [ "Json.Encode.null"
           , Expr.apps
               "Maybe.map"
-              [ Expr.bind Expr.Global absurd encoder
+              [ fmap absurd encoder
               , Expr.Var (B ())
               ]
           ]
