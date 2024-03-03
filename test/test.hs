@@ -7,7 +7,8 @@ module Main (main) where
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.JsonSpec (Specification(JsonArray, JsonDateTime, JsonEither,
-  JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString, JsonTag))
+  JsonInt, JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef,
+  JsonString, JsonTag))
 import Data.JsonSpec.Elm (Named, elmDefs)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy(Proxy))
@@ -196,7 +197,7 @@ main =
             $ elmDefs (Proxy @NullableSpec)
 
           expected :: HashMap Module Text
-          expected = 
+          expected =
             HM.singleton
               ["Api", "Data"]
               ( Text.unlines

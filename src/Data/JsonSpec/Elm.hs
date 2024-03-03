@@ -73,7 +73,7 @@
     >       (Named "AnInt" JsonInt)
     >       ( JsonEither
     >           JsonFloat -- note the omitted name
-    >           ( Named "AString" JsonString) 
+    >           ( Named "AString" JsonString)
     >       )
     >   )
 
@@ -85,7 +85,7 @@
     >   | AString String
 
     == Producing actual Elm code
-    
+
     This package gets you as far as having a collection of
     'Definition's in hand, which come from the 'elm-syntax'
     package. You will need to use the pretty printing
