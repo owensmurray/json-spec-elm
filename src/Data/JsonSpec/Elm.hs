@@ -1,9 +1,12 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -121,8 +124,7 @@ import Language.Elm.Name (Constructor, Qualified)
 import Language.Elm.Type (Type)
 import Prelude (Applicative(pure), Bool(False, True), Foldable(foldl,
   foldr), Functor(fmap), Maybe(Just, Nothing), Monad((>>)),
-  Semigroup((<>)), Show(show), ($), (++), (.), (<$>), Int, error, fst,
-  snd, zip)
+  Semigroup((<>)), Show(show), ($), (++), (.), (<$>), Int, error, zip)
 import qualified Data.Char as Char
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -148,10 +150,46 @@ elmDefs _ =
   execWriter $ typeOf @spec >> decoderOf @spec
 
 
+{-| Describes how a field in a record should be encoded in Elm. -}
+data FieldEncoding = FieldEncoding
+  {   required :: Bool
+                  {-^
+                    'True' if the fields presence is required in the JSON
+                    object, 'False' if it is not (which implies that the
+                    field is a @Maybe something@, though that information
+                    is not tracked here.
+                  -}
+  ,  jsonField :: Text {-^ The name of the encoded JSON field.  -}
+  ,   elmField :: Name.Field {-^ The name of the Elm record field.  -}
+  , encoderFun :: Expression Void
+                  {-^
+                    The Elm function which can decode field value. The
+                    expression will be a lambda expression that accepts
+                    an Elm value and produces Elm's representation of a
+                    JSON value (i.e.  @Json.Encode.Value@)
+                  -}
+  }
+
+
+{-| Describes how a field in a record should be decoded.  -}
+data FieldDecoding = FieldDecoding
+  { jsonField :: Text {-^ The name of the decoded field in JSON -}
+  ,   decoder :: Expression Void
+                 {-^
+                   An Elm expression containing the decoder for the
+                   field value. I.e. of the Elm type @Json.Decode.Decoder
+                   something@.
+                 -}
+  }
+
+{-|
+  How to define, encode, and decode an Elm record from a list of JSON
+  object field specifications.
+-}
 class Record (spec :: [FieldSpec]) where
   recordDefs :: forall v. Definitions [(Name.Field, Type v)]
-  recordEncoders :: Definitions [(Bool, Text, Name.Field, Expression Void)]
-  recordDecoders :: Definitions [(Text, Expression Void)]
+  recordEncoders :: Definitions [FieldEncoding]
+  recordDecoders :: Definitions [FieldDecoding]
 instance Record '[] where
   recordDefs = pure []
   recordEncoders = pure []
@@ -171,14 +209,23 @@ instance
     recordEncoders = do
       encoder <- encoderOf @spec
       moreFields <- recordEncoders @more
-      pure $ (True, sym @name, fieldName (sym @name), encoder) : moreFields
+      pure $
+        FieldEncoding
+          { required = True
+          , jsonField = sym @name
+          , elmField = fieldName (sym @name)
+          , encoderFun = encoder
+          }
+        : moreFields
     recordDecoders = do
       dec <- decoderOf @spec
       more <- recordDecoders @more
       pure $
-        ( sym @name
-        , "Json.Decode.field" `a` Expr.String (sym @name) `a` dec
-        ) : more
+        FieldDecoding
+          { jsonField = sym @name
+          , decoder = "Json.Decode.field" `a` Expr.String (sym @name) `a` dec
+          }
+        : more
 instance
     ( HasType spec
     , KnownSymbol name
@@ -194,15 +241,25 @@ instance
     recordEncoders = do
       encoder <- encoderOf @spec
       moreFields <- recordEncoders @more
-      pure $ (False, sym @name, fieldName (sym @name), encoder) : moreFields
+      pure $
+        FieldEncoding
+          { required = False
+          , jsonField = sym @name
+          , elmField = fieldName (sym @name)
+          , encoderFun = encoder
+          }
+        : moreFields
     recordDecoders = do
       dec <- decoderOf @spec
       more <- recordDecoders @more
       pure $
-        ( sym @name
-        , "Json.Decode.maybe"
-            `a` ("Json.Decode.field" `a` Expr.String (sym @name) `a` dec)
-        ) : more
+        FieldDecoding
+          { jsonField = sym @name
+          , decoder =
+              "Json.Decode.maybe"
+                `a` ("Json.Decode.field" `a` Expr.String (sym @name) `a` dec)
+          }
+        : more
 
 
 {-|
@@ -246,7 +303,7 @@ instance HasType JsonInt where
 instance (Record fields) => HasType (JsonObject fields) where
   typeOf = Type.Record <$> recordDefs @fields
   decoderOf = do
-    decoders <- recordDecoders @fields
+    decodings <- recordDecoders @fields
     pure $
       foldl
         (\expr decoder ->
@@ -256,8 +313,8 @@ instance (Record fields) => HasType (JsonObject fields) where
                 lam (\var -> "Json.Decode.map" `a` var `a` (absurd <$> decoder))
             )
         )
-        ("Json.Decode.succeed" `a` recordConstructor (fst <$> decoders))
-        (snd <$> decoders)
+        ("Json.Decode.succeed" `a` recordConstructor ((.jsonField) <$> decodings))
+        ((.decoder) <$> decodings)
   encoderOf = do
     fields <- recordEncoders @fields
     pure $
@@ -272,7 +329,7 @@ instance (Record fields) => HasType (JsonObject fields) where
                         Expr.apps "Basics.,"
                           [
                             Expr.String jsonField,
-                            fmap absurd encoder `a`
+                            fmap absurd encoderFun `a`
                               (Expr.Proj elmField `a` var)
                           ]
                     else
@@ -281,11 +338,13 @@ instance (Record fields) => HasType (JsonObject fields) where
                             Expr.apps "Basics.,"
                               [
                                 Expr.String jsonField,
-                                fmap absurd encoder `a` inner
+                                fmap absurd encoderFun `a` inner
                               ]
                           )
                       `a` (Expr.Proj elmField `a` var)
-                  | (required, jsonField, elmField, encoder) <- fields
+                  | FieldEncoding {required, jsonField, elmField, encoderFun}
+                      <- fields
+
                   ]
           )
       )
