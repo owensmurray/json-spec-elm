@@ -51,8 +51,8 @@ library
 
 flag compile-elm
   description:
-    Set this flag to run the Elm compilation tests, which requires
-    Elm to be installed on the system.
+    Set this flag to run the Elm compilation tests, which requires Elm
+    to be installed on the system.
   default: False
 
 test-suite compile-elm
