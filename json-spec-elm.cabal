@@ -1,6 +1,6 @@
 cabal-version:       3.0
 name:                json-spec-elm
-version:             0.4.0.2
+version:             0.4.0.3
 synopsis:            Elm code generate for `json-spec`.
 description:         
                      Produce elm types, encoders, and decoders from a
@@ -21,8 +21,8 @@ extra-source-files:
 
 common dependencies
   build-depends:
-    , base                 >= 4.17.2.1 && < 4.20
-    , containers           >= 0.6.7    && < 0.7
+    , base                 >= 4.17.2.1 && < 4.21
+    , containers           >= 0.6.7    && < 0.8
     , elm-syntax           >= 0.3.2.0  && < 0.4
     , json-spec            >= 0.3.0.0  && < 0.6
     , text                 >= 2.0.2    && < 2.2
