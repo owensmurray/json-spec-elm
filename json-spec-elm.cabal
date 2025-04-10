@@ -12,7 +12,7 @@ license:             MIT
 license-file:        LICENSE
 author:              Rick Owens
 maintainer:          rick@owensmurray.com
-copyright:           2024 Rick Owens
+copyright:           2025 Owens Murray, LLC.
 category:            JSON, Elm
 build-type:          Simple
 extra-source-files:
@@ -21,7 +21,7 @@ extra-source-files:
 
 common dependencies
   build-depends:
-    , base                 >= 4.17.2.1 && < 4.21
+    , base                 >= 4.17.2.1 && < 4.22
     , containers           >= 0.6.7    && < 0.8
     , elm-syntax           >= 0.3.2.0  && < 0.4
     , json-spec            >= 0.3.0.0  && < 1.2
