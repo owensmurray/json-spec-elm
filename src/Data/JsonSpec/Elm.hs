@@ -72,13 +72,11 @@
     The specification
 
     > Named "MySumType"
-    >   ( JsonEither
-    >       (Named "AnInt" JsonInt)
-    >       ( JsonEither
-    >           JsonFloat -- note the omitted name
-    >           ( Named "AString" JsonString)
-    >       )
-    >   )
+    >   ( JsonEither '[
+    >       Named "AnInt" JsonInt,
+    >       JsonFloat,  -- note the omitted name
+    >       Named "AString" JsonString
+    >   ])
 
     will produce the Elm type
 
@@ -439,10 +437,10 @@ instance {- HasType (JsonLet ( def : more ) spec) -}
     encoderOf = do
       defs @def
       encoderOf @(JsonLet more spec)
-instance {- HasType (JsonEither left right) -}
+instance {- HasType (JsonEither branches) -}
     (TypeError AnonSumTypeError)
   =>
-    HasType (JsonEither left right)
+    HasType (JsonEither branches)
   where
     typeOf = error "undefinable"
     decoderOf = error "undefinable"
@@ -468,25 +466,25 @@ type family Concat (a :: [k]) (b :: [k]) where
 
 class HasDef (def :: (Symbol, Specification)) where
   defs :: Definitions ()
-instance {- HasDef '(name, JsonEither left right) -}
+instance {- HasDef '(name, JsonEither branches) -}
     ( KnownSymbol name
-    , SumDef (JsonEither left right)
+    , SumDef (JsonEither branches)
     )
   =>
-    HasDef '(name, JsonEither left right)
+    HasDef '(name, JsonEither branches)
   where
     defs = do
-        branches <- sumDef @(JsonEither left right)
+        branches_ <- sumDef @(JsonEither branches)
         let
           constructors :: [(Constructor, [Scope Int Type Void])]
           constructors =
             [ ( Name.Constructor (constructorName conName n)
               , [Scope type_]
               )
-            | (n, (conName, type_)) <- zip [1..] branches
+            | (n, (conName, type_)) <- zip [1..] branches_
             ]
-        decoders <- sumDecoders @(JsonEither left right)
-        encoders <- sumEncoders @(JsonEither left right)
+        decoders <- sumDecoders @(JsonEither branches)
+        encoders <- sumEncoders @(JsonEither branches)
         tell . Set.fromList $
           [ Def.Type (localName name) 0 constructors
           , Def.Constant
@@ -628,23 +626,27 @@ class SumDef (spec :: Specification) where
   sumDef :: forall v. Definitions [(Maybe Text, Type v)]
   sumDecoders :: Definitions [(Maybe Text, Expression Void)]
   sumEncoders :: Definitions [(Maybe Text, Expression Void)]
-instance {- SumDef (JsonEither left right) -}
-    (SumDef left, SumDef right)
+instance SumDef (JsonEither '[]) where
+  sumDef = pure []
+  sumDecoders = pure []
+  sumEncoders = pure []
+instance {- SumDef (JsonEither (a ': as)) -}
+    (SumDef a, SumDef (JsonEither as))
   =>
-    SumDef (JsonEither left right)
+    SumDef (JsonEither (a ': as))
   where
     sumDef = do
-      left <- sumDef @left
-      right <- sumDef @right
-      pure $ left ++ right
+      aDef <- sumDef @a
+      asDef <- sumDef @(JsonEither as)
+      pure $ aDef ++ asDef
     sumDecoders = do
-      left <- sumDecoders @left
-      right <- sumDecoders @right
-      pure (left ++ right)
+      aDec <- sumDecoders @a
+      asDec <- sumDecoders @(JsonEither as)
+      pure (aDec ++ asDec)
     sumEncoders = do
-      left <- sumEncoders @left
-      right <- sumEncoders @right
-      pure (left ++ right)
+      aEnc <- sumEncoders @a
+      asEnc <- sumEncoders @(JsonEither as)
+      pure (aEnc ++ asEnc)
 instance {- SumDef (JsonLet '[ '(name, def) ] (JsonRef name)) -}
     ( HasType def
     , KnownSymbol name
@@ -774,15 +776,7 @@ type AnonSumTypeError =
     :$$: Lits.Text ""
     :$$: Lits.Text "> JsonLet"
     :$$: Lits.Text ">   '[ '( \"MySum\""
-    :$$: Lits.Text ">       , JsonEither"
-    :$$: Lits.Text ">           ( JsonEither"
-    :$$: Lits.Text ">               JsonInt"
-    :$$: Lits.Text ">               JsonString"
-    :$$: Lits.Text ">           )"
-    :$$: Lits.Text ">           ( JsonEither"
-    :$$: Lits.Text ">               JsonFloat"
-    :$$: Lits.Text ">               JsonBool"
-    :$$: Lits.Text ">           )"
+    :$$: Lits.Text ">       , JsonEither '[JsonInt, JsonString, JsonFloat, JsonBool]"
     :$$: Lits.Text ">       )"
     :$$: Lits.Text ">    ]"
     :$$: Lits.Text ">    (JsonRef \"MySum\")"
