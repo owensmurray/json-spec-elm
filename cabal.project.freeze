@@ -61,7 +61,7 @@ constraints: any.HUnit ==1.6.2.0,
              any.integer-conversion ==0.1.1,
              any.integer-logarithms ==1.0.5,
              integer-logarithms -check-bounds +integer-gmp,
-             any.json-spec ==1.2.0.0,
+             any.json-spec ==1.3.0.0,
              json-spec-elm +compile-elm,
              any.mmorph ==1.2.2,
              any.mtl ==2.3.1,
@@ -115,4 +115,4 @@ constraints: any.HUnit ==1.6.2.0,
              vector +boundschecks -internalchecks -unsafechecks -wall,
              any.vector-stream ==0.1.0.1,
              any.witherable ==0.5
-index-state: hackage.haskell.org 2026-02-05T10:14:40Z
+index-state: hackage.haskell.org 2026-02-09T15:21:31Z

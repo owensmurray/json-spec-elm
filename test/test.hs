@@ -337,19 +337,19 @@ type TestSpec =
               Required "invites" (
                 JsonLet '[
                   '("Invite",
-                    JsonEither
-                      (Named "InviteUser" (JsonObject '[
+                    JsonEither '[
+                      Named "InviteUser" (JsonObject '[
                         Required "type" (JsonTag "discord-user"),
                         Required "username" JsonString
-                      ]))
-                      (Named "InviteGuild" (JsonObject '[
+                      ]),
+                      Named "InviteGuild" (JsonObject '[
                         Required "type" (JsonTag "discord-server"),
                         Required "guild" (JsonObject '[
                           Required "id" JsonString,
                           Required "name" JsonString
                          ])
-                      ]))
-                  )
+                      ])
+                    ])
                 ]
                 (JsonArray (JsonRef "Invite"))
               ),
@@ -373,20 +373,16 @@ type ExampleSpec =
           Required "dateField" JsonDateTime,
           Required "sumType1" (
             Named "SumTypeWithCustomConstructorNames" (
-              JsonEither
-                (
-                  JsonEither
-                    (Named "IntConstructor" JsonInt)
-                    (Named "StringConstructor" JsonString)
-                )
-                (Named "FloatConstructor" JsonNum)
+              JsonEither '[
+                Named "IntConstructor" JsonInt,
+                Named "StringConstructor" JsonString,
+                Named "FloatConstructor" JsonNum
+              ]
             )
           ),
           Required "sumType2" (
             Named "SumTypeWithAutomaticConstructorNames" (
-              JsonEither
-                ( JsonEither JsonInt JsonString)
-                JsonNum
+              JsonEither '[JsonInt, JsonString, JsonNum]
             )
           )
         ]),

@@ -35,21 +35,15 @@ type ExampleSpec =
                  , '( "sumType1"
                     , Named "SumTypeWithCustomConstructorNames"
                         ( JsonEither
-                            ( JsonEither
-                                (Named "IntConstructor" JsonInt)
-                                (Named "StringConstructor" JsonString)
-                            )
-                            (Named "FloatConstructor" JsonNum)
+                           '[ Named "IntConstructor" JsonInt
+                            , Named "StringConstructor" JsonString
+                            , Named "FloatConstructor" JsonNum
+                            ]
                         )
                     )
                  , '( "sumType2"
                     , Named "SumTypeWithAutomaticConstructorNames"
-                        ( JsonEither
-                            ( JsonEither
-                                JsonInt
-                                JsonString
-                            )
-                            JsonNum
+                        ( JsonEither '[JsonInt, JsonString, JsonNum]
                         )
                     )
                  ]
