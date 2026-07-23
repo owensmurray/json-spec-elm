@@ -6,17 +6,22 @@ module Main (main) where
 
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
-import Data.JsonSpec (FieldSpec(Optional, Required),
-  Specification(JsonArray, JsonDateTime, JsonEither, JsonInt, JsonLet,
-  JsonNullable, JsonNum, JsonObject, JsonRef, JsonString, JsonTag))
+import Data.JsonSpec
+  ( FieldSpec(Optional, Required)
+  , Specification
+    ( JsonArray, JsonDateTime, JsonDict, JsonEither, JsonInt, JsonLet
+    , JsonNullable, JsonNum, JsonObject, JsonRef, JsonString, JsonTag
+    )
+  )
 import Data.JsonSpec.Elm (Named, elmDefs)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
 import Language.Elm.Name (Module)
 import Language.Elm.Pretty (modules)
-import Prelude (Bool(True), Functor(fmap), Semigroup((<>)), ($), (.),
-  FilePath, IO, init)
+import Prelude
+  ( Bool(True), Functor(fmap), Semigroup((<>)), ($), (.), FilePath, IO, init
+  )
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import System.Directory (createDirectoryIfMissing)
@@ -27,7 +32,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TIO
-
 
 main :: IO ()
 main =
@@ -228,6 +232,48 @@ main =
         in do
           actual `shouldBe` expected
           compileElm actual
+      it "works with dict values" $
+        let
+          actual :: HashMap Module Text
+          actual =
+            fmap ((<> "\n") . renderStrict . layoutPretty defaultLayoutOptions)
+            . modules
+            . Set.toList
+            $ elmDefs (Proxy @DictSpec)
+
+          expected :: HashMap Module Text
+          expected =
+            HM.singleton
+              ["Api", "Data"]
+              ( Text.unlines
+                  [ "module Api.Data exposing"
+                  , "    ( scoresDecoder"
+                  , "    , scoresEncoder"
+                  , "    , Scores"
+                  , "    )"
+                  , ""
+                  , "import Dict"
+                  , "import Json.Decode"
+                  , "import Json.Encode"
+                  , ""
+                  , ""
+                  , "scoresDecoder : Json.Decode.Decoder Scores"
+                  , "scoresDecoder ="
+                  , "    Json.Decode.dict Json.Decode.int"
+                  , ""
+                  , ""
+                  , "scoresEncoder : Scores -> Json.Encode.Value"
+                  , "scoresEncoder ="
+                  , "    Json.Encode.dict identity Json.Encode.int"
+                  , ""
+                  , ""
+                  , "type alias Scores  ="
+                  , "    Dict.Dict String Int"
+                  ]
+              )
+        in do
+          actual `shouldBe` expected
+          compileElm actual
       it "works with optionality" $
         let
           actual :: HashMap Module Text
@@ -411,6 +457,11 @@ type ExampleSpec =
 type NullableSpec =
   Named "NullableInt"
     (JsonNullable JsonInt)
+
+
+type DictSpec =
+  Named "Scores"
+    (JsonDict JsonInt)
 
 
 writeModule :: (Module, Text) -> IO ()
