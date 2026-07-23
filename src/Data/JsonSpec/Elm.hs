@@ -101,28 +101,34 @@ module Data.JsonSpec.Elm (
   Named,
 ) where
 
-
 import Bound (Scope(Scope), Var(B), abstract1, closed, toScope)
-import Control.Monad.Writer (MonadTrans(lift), MonadWriter(tell),
-  Writer, execWriter)
-import Data.JsonSpec (FieldSpec(Optional, Required),
-  Specification(JsonArray, JsonBool, JsonDateTime, JsonEither, JsonInt,
-  JsonLet, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString,
-  JsonTag))
+import Control.Monad.Writer
+  ( MonadTrans(lift), MonadWriter(tell), Writer, execWriter
+  )
+import Data.JsonSpec
+  ( FieldSpec(Optional, Required)
+  , Specification
+    ( JsonArray, JsonBool, JsonDateTime, JsonDict, JsonEither, JsonInt, JsonLet
+    , JsonNullable, JsonNum, JsonObject, JsonRef, JsonString, JsonTag
+    )
+  )
 import Data.Proxy (Proxy(Proxy))
 import Data.Set (Set)
 import Data.String (IsString(fromString))
 import Data.Text (Text)
 import Data.Void (Void, absurd)
-import GHC.TypeLits (ErrorMessage((:$$:), (:<>:)), KnownSymbol, Symbol,
-  TypeError, symbolVal)
+import GHC.TypeLits
+  ( ErrorMessage((:$$:), (:<>:)), KnownSymbol, Symbol, TypeError, symbolVal
+  )
 import Language.Elm.Definition (Definition)
 import Language.Elm.Expression ((|>), Expression, if_)
 import Language.Elm.Name (Constructor, Qualified)
 import Language.Elm.Type (Type)
-import Prelude (Applicative(pure), Bool(False, True), Foldable(foldl,
-  foldr), Functor(fmap), Maybe(Just, Nothing), Monad((>>)),
-  Semigroup((<>)), Show(show), ($), (++), (.), (<$>), Int, error, zip)
+import Prelude
+  ( Applicative(pure), Bool(False, True), Foldable(foldl, foldr), Functor(fmap)
+  , Maybe(Just, Nothing), Monad((>>)), Semigroup((<>)), Show(show), ($), (++)
+  , (.), (<$>), Int, error, zip
+  )
 import qualified Data.Char as Char
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -132,7 +138,6 @@ import qualified Language.Elm.Expression as Expr
 import qualified Language.Elm.Name as Name
 import qualified Language.Elm.Pattern as Pat
 import qualified Language.Elm.Type as Type
-
 
 {-|
   Generate Elm type, encoder, and decoder 'Definition's for all /named/
@@ -356,6 +361,16 @@ instance (HasType spec) => HasType (JsonArray spec) where
   encoderOf = do
     encoder <- encoderOf @spec
     pure $ "Json.Encode.list" `a` encoder
+instance (HasType spec) => HasType (JsonDict spec) where
+  typeOf = do
+    elemType <- typeOf @spec
+    pure $ "Dict.Dict" `ta` "String.String" `ta` elemType
+  decoderOf = do
+    dec <- decoderOf @spec
+    pure $ "Json.Decode.dict" `a` dec
+  encoderOf = do
+    encoder <- encoderOf @spec
+    pure $ "Json.Encode.dict" `a` "Basics.identity" `a` encoder
 instance HasType JsonBool where
   typeOf = pure "Basics.Bool"
   decoderOf = pure "Json.Decode.bool"
