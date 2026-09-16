@@ -1,23 +1,24 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Main (main) where
 
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.JsonSpec
-  ( FieldSpec(Optional, Required)
+  ( FieldSpec(Optional, Required), Module(Module)
   , Specification
     ( JsonArray, JsonDateTime, JsonDict, JsonEither, JsonInt, JsonLet
     , JsonNullable, JsonNum, JsonObject, JsonRef, JsonString, JsonTag
     )
+  , type (::=), type (:=)
   )
 import Data.JsonSpec.Elm (Named, elmDefs)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy(Proxy))
 import Data.Text (Text)
-import Language.Elm.Name (Module)
 import Language.Elm.Pretty (modules)
 import Prelude
   ( Bool(True), Functor(fmap), Semigroup((<>)), ($), (.), FilePath, IO, init
@@ -32,6 +33,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TIO
+import qualified Language.Elm.Name as ElmName
 
 main :: IO ()
 main =
@@ -39,14 +41,14 @@ main =
     describe "Code generation" $ do
       it "works with a complicated schema" $
         let
-          actual :: HashMap Module Text
+          actual :: HashMap ElmName.Module Text
           actual =
             fmap ((<> "\n") . renderStrict . layoutPretty defaultLayoutOptions)
             . modules
             . Set.toList
             $ elmDefs (Proxy @TestSpec)
 
-          expected :: HashMap Module Text
+          expected :: HashMap ElmName.Module Text
           expected =
             HM.singleton
               ["Api", "Data"]
@@ -182,7 +184,7 @@ main =
           compileElm actual
       it "works with the example schema" $
         let
-          actual :: HashMap Module Text
+          actual :: HashMap ElmName.Module Text
           actual =
             fmap ((<> "\n") . renderStrict . layoutPretty defaultLayoutOptions)
             . modules
@@ -193,14 +195,14 @@ main =
           compileElm actual
       it "works with nullable values" $
         let
-          actual :: HashMap Module Text
+          actual :: HashMap ElmName.Module Text
           actual =
             fmap ((<> "\n") . renderStrict . layoutPretty defaultLayoutOptions)
             . modules
             . Set.toList
             $ elmDefs (Proxy @NullableSpec)
 
-          expected :: HashMap Module Text
+          expected :: HashMap ElmName.Module Text
           expected =
             HM.singleton
               ["Api", "Data"]
@@ -234,14 +236,14 @@ main =
           compileElm actual
       it "works with dict values" $
         let
-          actual :: HashMap Module Text
+          actual :: HashMap ElmName.Module Text
           actual =
             fmap ((<> "\n") . renderStrict . layoutPretty defaultLayoutOptions)
             . modules
             . Set.toList
             $ elmDefs (Proxy @DictSpec)
 
-          expected :: HashMap Module Text
+          expected :: HashMap ElmName.Module Text
           expected =
             HM.singleton
               ["Api", "Data"]
@@ -276,24 +278,24 @@ main =
           compileElm actual
       it "works with optionality" $
         let
-          actual :: HashMap Module Text
+          actual :: HashMap ElmName.Module Text
           actual =
             fmap ((<> "\n") . renderStrict . layoutPretty defaultLayoutOptions)
             . modules
             . Set.toList
             $ elmDefs (Proxy @(
                 JsonLet
-                  '[ '("TestObj", JsonObject '[
+                  '[ "TestObj" := JsonObject '[
                         Optional "foo" JsonInt,
                         Optional "bar" (JsonNullable JsonInt),
                         Required "baz" JsonInt,
                         Required "qux" (JsonNullable JsonInt)
-                      ])
+                      ]
                    ]
                    (JsonRef "TestObj")
               ))
 
-          expected :: HashMap Module Text
+          expected :: HashMap ElmName.Module Text
           expected =
             HM.singleton
               ["Api", "Data"]
@@ -334,7 +336,7 @@ main =
           compileElm actual
 
 
-compileElm :: HashMap Module Text -> IO ()
+compileElm :: HashMap ElmName.Module Text -> IO ()
 compileElm code = do
   traverse_ writeModule (HM.toList code)
   callCommand "(cd elm-test; elm-format src/ --yes)"
@@ -362,7 +364,7 @@ compileElm code = do
 type TestSpec =
   JsonLet
     '[
-      '("Dashboard", JsonObject '[
+      "Dashboard" := JsonObject '[
         Required "proposals" (JsonArray (
           JsonObject '[
             Required "key" JsonString,
@@ -382,7 +384,7 @@ type TestSpec =
               Required "venue" JsonString,
               Required "invites" (
                 JsonLet '[
-                  '("Invite",
+                  "Invite" ::= 'Module (
                     JsonEither '[
                       Named "InviteUser" (JsonObject '[
                         Required "type" (JsonTag "discord-user"),
@@ -395,7 +397,8 @@ type TestSpec =
                           Required "name" JsonString
                          ])
                       ])
-                    ])
+                    ]
+                  )
                 ]
                 (JsonArray (JsonRef "Invite"))
               ),
@@ -406,7 +409,7 @@ type TestSpec =
         )),
         Optional "credits" JsonInt,
         Required "user" JsonString
-       ])
+       ]
     ] ( JsonRef "Dashboard")
 
 
@@ -464,7 +467,7 @@ type DictSpec =
     (JsonDict JsonInt)
 
 
-writeModule :: (Module, Text) -> IO ()
+writeModule :: (ElmName.Module, Text) -> IO ()
 writeModule (module_, content) = do
     createDirectoryIfMissing True dirname
     TIO.writeFile filename content

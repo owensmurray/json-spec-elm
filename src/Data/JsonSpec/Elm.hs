@@ -32,11 +32,11 @@
     type or type alias.
 
   * If a second 'JsonLet' binding, with exactly one definition, of the
-    form @JsonLet '[ '(name, def) ] (JsonRef name)@ appears as the RHS of
+    form @JsonLet '[ name := def ] (JsonRef name)@ appears as the RHS of
     a 'JsonLet'binding, then that is interpreted as a constructor name,
     and the generated Elm definition will be a regular type instead of a
     type alias. See 'Named' for an easy shorthand way to spell @JsonLet '[
-    '(name, def) ] (JsonRef name)@
+    name := def ] (JsonRef name)@
 
   * For any 'Named' leaf of a tree of 'JsonEither's, the name is interpreted as
     a data constructor name, otherwise a data constructor name is
@@ -106,11 +106,13 @@ import Control.Monad.Writer
   ( MonadTrans(lift), MonadWriter(tell), Writer, execWriter
   )
 import Data.JsonSpec
-  ( FieldSpec(Optional, Required)
+  ( FieldSpec(Optional, Required), Module(Module)
   , Specification
     ( JsonArray, JsonBool, JsonDateTime, JsonDict, JsonEither, JsonInt, JsonLet
-    , JsonNullable, JsonNum, JsonObject, JsonRef, JsonString, JsonTag
+    , JsonModule, JsonNullable, JsonNum, JsonObject, JsonRef, JsonString
+    , JsonTag
     )
+  , BindingSpec, type (::=), type (:=)
   )
 import Data.Proxy (Proxy(Proxy))
 import Data.Set (Set)
@@ -118,7 +120,7 @@ import Data.String (IsString(fromString))
 import Data.Text (Text)
 import Data.Void (Void, absurd)
 import GHC.TypeLits
-  ( ErrorMessage((:$$:), (:<>:)), KnownSymbol, Symbol, TypeError, symbolVal
+  ( ErrorMessage((:$$:), (:<>:)), KnownSymbol, TypeError, symbolVal
   )
 import Language.Elm.Definition (Definition)
 import Language.Elm.Expression ((|>), Expression, if_)
@@ -432,6 +434,10 @@ instance (KnownSymbol name) => HasType (JsonRef name) where
     pure . Expr.Global $ decoderName @name
   encoderOf =
     pure . Expr.Global $ encoderName @name
+instance (HasType spec) => HasType (JsonModule ('Module spec)) where
+  typeOf = typeOf @spec
+  decoderOf = decoderOf @spec
+  encoderOf = encoderOf @spec
 instance (HasType spec) => HasType (JsonLet '[] spec) where
   typeOf = typeOf @spec
   decoderOf = decoderOf @spec
@@ -479,14 +485,14 @@ type family Concat (a :: [k]) (b :: [k]) where
     a : Concat more b
 
 
-class HasDef (def :: (Symbol, Specification)) where
+class HasDef (def :: BindingSpec) where
   defs :: Definitions ()
-instance {- HasDef '(name, JsonEither branches) -}
+instance {- HasDef (name := JsonEither branches) -}
     ( KnownSymbol name
     , SumDef (JsonEither branches)
     )
   =>
-    HasDef '(name, JsonEither branches)
+    HasDef (name := JsonEither branches)
   where
     defs = do
         branches_ <- sumDef @(JsonEither branches)
@@ -548,13 +554,13 @@ instance {- HasDef '(name, JsonEither branches) -}
 
         name :: Text
         name = sym @name
-instance {- HasDef '(name, Named consName spec) -}
+instance {- HasDef (name := Named consName spec) -}
     ( HasType spec
     , KnownSymbol consName
     , KnownSymbol name
     )
   =>
-    HasDef '(name, Named consName spec)
+    HasDef (name := Named consName spec)
   where
     defs = do
       typ <- typeOf @spec
@@ -600,10 +606,10 @@ instance {- HasDef '(name, Named consName spec) -}
                   ]
             )
         ]
-instance {- HasDef '(name, spec) -}
+instance {- HasDef (name := spec) -}
     {-# overlaps #-} (HasType spec, KnownSymbol name)
   =>
-    HasDef '(name, spec)
+    HasDef (name := spec)
   where
     defs = do
       type_ <- typeOf @spec
@@ -635,6 +641,8 @@ instance {- HasDef '(name, spec) -}
             )
             enc
         ]
+instance (HasDef (name := spec)) => HasDef (name ::= 'Module spec) where
+  defs = defs @(name := spec)
 
 
 class SumDef (spec :: Specification) where
@@ -662,12 +670,12 @@ instance {- SumDef (JsonEither (a ': as)) -}
       aEnc <- sumEncoders @a
       asEnc <- sumEncoders @(JsonEither as)
       pure (aEnc ++ asEnc)
-instance {- SumDef (JsonLet '[ '(name, def) ] (JsonRef name)) -}
+instance {- SumDef (JsonLet '[ name := def ] (JsonRef name)) -}
     ( HasType def
     , KnownSymbol name
     )
   =>
-    SumDef (JsonLet '[ '(name, def) ] (JsonRef name))
+    SumDef (JsonLet '[ name := def ] (JsonRef name))
   where
     sumDef = do
       typ <- typeOf @def
@@ -781,7 +789,7 @@ lam f =
   Helper for giving a specification a name. This is especially useful for
   making sure sum type data constructors have meaningful names.
 -}
-type Named name def = JsonLet '[ '(name, def) ] (JsonRef name)
+type Named name def = JsonLet '[ name := def ] (JsonRef name)
 
 
 type AnonSumTypeError =
@@ -790,9 +798,8 @@ type AnonSumTypeError =
     :<>: Lits.Text "you must give it a name using `JsonLet`, e.g:"
     :$$: Lits.Text ""
     :$$: Lits.Text "> JsonLet"
-    :$$: Lits.Text ">   '[ '( \"MySum\""
-    :$$: Lits.Text ">       , JsonEither '[JsonInt, JsonString, JsonFloat, JsonBool]"
-    :$$: Lits.Text ">       )"
+    :$$: Lits.Text ">   '[ \"MySum\" := JsonEither"
+    :$$: Lits.Text ">        '[JsonInt, JsonString, JsonFloat, JsonBool]"
     :$$: Lits.Text ">    ]"
     :$$: Lits.Text ">    (JsonRef \"MySum\")"
     :$$: Lits.Text ""
