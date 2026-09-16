@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0.0
+
+- Major version bump to align with the `json-spec` 2.x epoch for
+  version compatibility across the json-spec ecosystem.
+- Require `json-spec` >= 2.0.0.0.
+
 ## 0.6.0.0
 
 - Support `JsonDict` from `json-spec` 1.4, generating Elm `Dict`
